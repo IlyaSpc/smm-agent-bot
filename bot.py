@@ -191,20 +191,25 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     # Проверяем этап диалога
     if user_id not in user_data:
         logger.info("Новый запрос, проверяем тип")
-        if any(x in message for x in ["пост про", "напиши пост про", "пост для", "стори про", "напиши стори", "сторителлинг", "сторис", "стори для", "стратегия про", "напиши стратегию", "стратегия для", "изображение про", "изображение для"]):
-            user_data[user_id] = {"stage": "goal"}
-            if "пост" in message:
-                user_data[user_id]["mode"] = "post"
-                topic = re.sub(r"(пост про|напиши пост про|пост для)", "", message).strip()
-            elif "стори" in message or "сторителлинг" in message or "сторис" in message:
-                user_data[user_id]["mode"] = "story"
-                topic = re.sub(r"(стори про|напиши стори|сторителлинг|сторис|стори для)", "", message).strip()
-            elif "стратегия" in message:
-                user_data[user_id]["mode"] = "strategy"
-                topic = re.sub(r"(стратегия про|напиши стратегию|стратегия для)", "", message).strip()
-            elif "изображение" in message:
-                user_data[user_id]["mode"] = "image"
-                topic = re.sub(r"(изображение про|изображение для)", "", message).strip()
+        recognized = False
+        if any(x in message for x in ["пост про", "напиши пост про", "пост для"]):
+            user_data[user_id] = {"mode": "post", "stage": "goal"}
+            topic = re.sub(r"(пост про|напиши пост про|пост для)", "", message).strip()
+            recognized = True
+        elif any(x in message for x in ["стори про", "напиши стори", "сторителлинг", "сторис", "стори для"]):
+            user_data[user_id] = {"mode": "story", "stage": "goal"}
+            topic = re.sub(r"(стори про|напиши стори|сторителлинг|сторис|стори для)", "", message).strip()
+            recognized = True
+        elif any(x in message for x in ["стратегия про", "напиши стратегию", "стратегия для"]):
+            user_data[user_id] = {"mode": "strategy", "stage": "goal"}
+            topic = re.sub(r"(стратегия про|напиши стратегию|стратегия для)", "", message).strip()
+            recognized = True
+        elif any(x in message for x in ["изображение про", "изображение для"]):
+            user_data[user_id] = {"mode": "image", "stage": "goal"}
+            topic = re.sub(r"(изображение про|изображение для)", "", message).strip()
+            recognized = True
+
+        if recognized:
             user_data[user_id]["topic"] = topic
             logger.info(f"Установлен тип запроса: {user_data[user_id]['mode']}, тема: {topic}")
             await update.message.reply_text("Что должно сделать человек после чтения текста? (Купить, подписаться, обратиться, обсудить)")
