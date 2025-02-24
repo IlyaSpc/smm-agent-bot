@@ -9,7 +9,11 @@ import speech_recognition as sr
 from pydub import AudioSegment
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Настройки API
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAE9_zzdx6_9DocQQbEqPPYsHfzG7gZ-P-w")
@@ -34,8 +38,15 @@ BOOK_CONTEXT = """
 # Хранилище для ответов пользователей
 user_data = {}
 
+# Обработчик ошибок
+async def error_handler(update: Update, context: ContextTypes):
+    logger.error(f"Произошла ошибка: {context.error}", exc_info=True)
+    if update and update.message:
+        await update.message.reply_text("Что-то пошло не так. Попробуй ещё раз!")
+
 # Генерация текста через Together AI API
 def generate_text(user_id: int, mode: str):
+    logger.info(f"Генерация текста для user_id={user_id}, mode={mode}")
     topic = user_data[user_id]["topic"]
     goal = user_data[user_id].get("goal", "не указано")
     main_idea = user_data[user_id].get("main_idea", "не указано")
@@ -82,6 +93,7 @@ def generate_text(user_id: int, mode: str):
             "Стиль: живой, эмоциональный, с визуальными образами, краткий, ясный, разговорный, без штампов, с позитивом. Опиши изображение, эмоции и связь с темой."
         ).format(topic=topic, goal=goal, main_idea=main_idea, facts=facts, pains=pains, context=BOOK_CONTEXT[:1000])
 
+    logger.info(f"Отправка запроса к Together AI для {mode}")
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": "meta-llama/Llama-3-8b-chat-hf",
@@ -93,16 +105,20 @@ def generate_text(user_id: int, mode: str):
         try:
             response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=15)
             if response.status_code == 200:
+                logger.info("Успешный ответ от Together AI")
                 return response.json()["choices"][0]["message"]["content"].strip()
             else:
+                logger.error(f"Ошибка API: {response.status_code} - {response.text}")
                 return f"Ошибка API: {response.status_code} - {response.text}"
-        except (requests.RequestException, TimeoutError):
-            logging.warning(f"Попытка {attempt+1} зависла, ждём 5 сек...")
+        except (requests.RequestException, TimeoutError) as e:
+            logger.warning(f"Попытка {attempt+1} зависла, ждём 5 сек... Ошибка: {e}")
             sleep(5)
+    logger.error("Сервер Together AI не отвечает после 3 попыток")
     return "Сервер не отвечает, попробуй позже!"
 
 # Генерация актуальных хэштегов
 def generate_hashtags(topic):
+    logger.info(f"Генерация хэштегов для темы: {topic}")
     words = topic.split()
     base_hashtags = [f"#{word}" for word in words if len(word) > 2]
     thematic_hashtags = {
@@ -112,6 +128,7 @@ def generate_hashtags(topic):
         "чай": ["#чаепитие", "#утро", "#напитки", "#релакс", "#чайнаяпауза", "#уют"],
         "семья": ["#семейныеценности", "#тепло", "#вместе", "#любовь", "#семьямоёвсё", "#родные"],
         "автомобилестроение": ["#авто", "#машины", "#технологии", "#автолюбители", "#движение", "#скорость", "#инновации", "#автомобиль", "#автоистория", "#автодизайн"],
+        "дизайнер": ["#дизайн", "#креатив", "#творчество", "#дизайнерскаяжизнь", "#искрыгениальности", "#проекты"],
     }
     relevant_tags = []
     for key in thematic_hashtags:
@@ -125,27 +142,42 @@ def generate_hashtags(topic):
 
 # Распознавание голоса
 async def recognize_voice(file_path):
-    audio = AudioSegment.from_ogg(file_path)
-    wav_file = file_path.replace(".ogg", ".wav")
-    audio.export(wav_file, format="wav")
-    recognizer = sr.Recognizer()
+    logger.info(f"Распознавание голоса для файла: {file_path}")
     try:
+        audio = AudioSegment.from_ogg(file_path)
+        wav_file = file_path.replace(".ogg", ".wav")
+        audio.export(wav_file, format="wav")
+        recognizer = sr.Recognizer()
         with sr.AudioFile(wav_file) as source:
             audio_data = recognizer.record(source)
             text = recognizer.recognize_google(audio_data, language="ru-RU")
         os.remove(wav_file)
+        logger.info(f"Распознанный текст: {text}")
         return text
     except sr.UnknownValueError:
+        logger.warning("Не удалось распознать голос")
         os.remove(wav_file)
         return "Не удалось распознать голос, попробуй ещё раз!"
-    except sr.RequestError:
+    except sr.RequestError as e:
+        logger.error(f"Ошибка сервиса распознавания: {e}")
         os.remove(wav_file)
         return "Ошибка сервиса распознавания, повтори позже!"
+    except Exception as e:
+        logger.error(f"Ошибка в recognize_voice: {e}")
+        os.remove(wav_file)
+        raise
 
 # Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     user_id = update.message.from_user.id
-    message = await recognize_voice(f"voice_{update.message.message_id}.ogg") if is_voice else update.message.text.strip().lower()
+    logger.info(f"Обработка сообщения от user_id={user_id}, is_voice={is_voice}")
+    try:
+        message = await recognize_voice(f"voice_{update.message.message_id}.ogg") if is_voice else update.message.text.strip().lower()
+        logger.info(f"Сообщение: {message}")
+    except Exception as e:
+        logger.error(f"Ошибка при получении сообщения: {e}")
+        await update.message.reply_text("Не смог обработать сообщение. Попробуй ещё раз!")
+        return
 
     # Проверяем этап диалога
     if user_id not in user_data:
@@ -196,7 +228,7 @@ async def handle_voice(update: Update, context: ContextTypes):
     voice_file = await update.message.voice.get_file()
     file_path = f"voice_{update.message.message_id}.ogg"
     await voice_file.download_to_drive(file_path)
-    print(f"Получено голосовое сообщение, файл: {file_path}")
+    logger.info(f"Получено голосовое сообщение, файл: {file_path}")
     await handle_message(update, context, is_voice=True)
     os.remove(file_path)
 
@@ -210,6 +242,7 @@ async def start(update: Update, context: ContextTypes):
 
 # Webhook handler
 async def webhook(request):
+    logger.info("Получен запрос на webhook")
     update = Update.de_json(await request.json(), app.bot)
     if update:
         await app.process_update(update)
@@ -217,15 +250,16 @@ async def webhook(request):
 
 # Настройка и запуск
 async def init_app():
-    print("✅ Бот запускается...")
+    logger.info("Инициализация бота...")
     await app.initialize()
     hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "localhost")
     webhook_url = f"https://{hostname}/webhook"
     await app.bot.set_webhook(url=webhook_url)
-    print(f"Webhook установлен: {webhook_url}")
+    logger.info(f"Webhook установлен: {webhook_url}")
 
 async def main():
     await init_app()
+    app.add_error_handler(error_handler)  # Регистрируем обработчик ошибок
     web_app = web.Application()
     web_app.router.add_post('/webhook', webhook)
     app.add_handler(CommandHandler("start", start))
