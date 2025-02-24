@@ -48,10 +48,16 @@ async def error_handler(update: Update, context: ContextTypes):
 def generate_text(user_id: int, mode: str):
     logger.info(f"Генерация текста для user_id={user_id}, mode={mode}")
     topic = user_data[user_id]["topic"]
-    goal = user_data[user_id].get("goal", "не указано")
-    main_idea = user_data[user_id].get("main_idea", "не указано")
-    facts = user_data[user_id].get("facts", "не указано")
-    pains = user_data[user_id].get("pains", "не указано")
+    
+    if mode in ["post", "story", "image"]:
+        goal = user_data[user_id].get("goal", "не указано")
+        main_idea = user_data[user_id].get("main_idea", "не указано")
+        facts = user_data[user_id].get("facts", "не указано")
+        pains = user_data[user_id].get("pains", "не указано")
+    else:  # mode == "strategy"
+        client = user_data[user_id].get("client", "не указано")
+        channels = user_data[user_id].get("channels", "не указано")
+        result = user_data[user_id].get("result", "не указано")
 
     if mode == "post":
         full_prompt = (
@@ -77,12 +83,12 @@ def generate_text(user_id: int, mode: str):
         full_prompt = (
             "Ты копирайтер и эксперт по клиентогенерации с 10-летним опытом, работающий только на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
             "Разработай стратегию клиентогенерации на русском языке (12-15 предложений) по теме '{topic}'. "
-            "Цель текста: {goal}. Главная мысль: {main_idea}. Факты: {facts}. Боли и потребности аудитории: {pains}. "
+            "Идеальный клиент: {client}. Каналы привлечения: {channels}. Главный результат: {result}. "
             "Контекст из книг: '{context}'. "
             "Пиши ТОЛЬКО на русском языке, любые иностранные слова запрещены — используй русские эквиваленты (например, 'firsthand' — 'на собственном опыте', 'help us grow' — 'помогают расти'). "
             "Стиль: конкретный, пошаговый, с деталями, краткий, ясный, дружелюбный, без штампов, с примерами. "
             "Структура: 1) Кто идеальный клиент (отрасль, боли, потребности), 2) Воронка продаж (привлечение через каналы, прогрев контентом, закрытие сделки), 3) Инструменты автоматизации (CRM, рассылки, чат-боты), 4) Метрики успеха (KPI), 5) Призыв к действию."
-        ).format(topic=topic, goal=goal, main_idea=main_idea, facts=facts, pains=pains, context=BOOK_CONTEXT[:1000])
+        ).format(topic=topic, client=client, channels=channels, result=result, context=BOOK_CONTEXT[:1000])
     elif mode == "image":
         full_prompt = (
             "Ты копирайтер с 10-летним опытом, работающий только на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
@@ -173,7 +179,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     logger.info(f"Начало обработки сообщения от user_id={user_id}, is_voice={is_voice}")
     
     try:
-        # Проверяем наличие текста или голоса
         if is_voice:
             message = await recognize_voice(f"voice_{update.message.message_id}.ogg")
         else:
@@ -201,7 +206,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             topic = re.sub(r"(стори про|напиши стори|сторителлинг|сторис|стори для)", "", message).strip()
             recognized = True
         elif any(x in message for x in ["стратегия про", "напиши стратегию", "стратегия для"]):
-            user_data[user_id] = {"mode": "strategy", "stage": "goal"}
+            user_data[user_id] = {"mode": "strategy", "stage": "client"}
             topic = re.sub(r"(стратегия про|напиши стратегию|стратегия для)", "", message).strip()
             recognized = True
         elif any(x in message for x in ["изображение про", "изображение для"]):
@@ -212,34 +217,58 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         if recognized:
             user_data[user_id]["topic"] = topic
             logger.info(f"Установлен тип запроса: {user_data[user_id]['mode']}, тема: {topic}")
-            await update.message.reply_text("Что должно сделать человек после чтения текста? (Купить, подписаться, обратиться, обсудить)")
+            if user_data[user_id]["mode"] == "strategy":
+                await update.message.reply_text("Кто ваш идеальный клиент? (Опишите аудиторию: возраст, профессия, боли)")
+            else:
+                await update.message.reply_text("Что должно сделать человек после чтения текста? (Купить, подписаться, обратиться, обсудить)")
         else:
             logger.info("Некорректный запрос")
             await update.message.reply_text("Укажи тип запроса: 'пост про...', 'стори про...', 'стратегия про...', 'изображение про...' или используй 'для' вместо 'про'.")
-    elif user_data[user_id]["stage"] == "goal":
-        logger.info("Этап goal")
-        user_data[user_id]["goal"] = message
-        user_data[user_id]["stage"] = "main_idea"
-        await update.message.reply_text("Какая главная мысль должна остаться у читателя?")
-    elif user_data[user_id]["stage"] == "main_idea":
-        logger.info("Этап main_idea")
-        user_data[user_id]["main_idea"] = message
-        user_data[user_id]["stage"] = "facts"
-        await update.message.reply_text("Какие факты, цифры или примеры могут подтвердить мысль?")
-    elif user_data[user_id]["stage"] == "facts":
-        logger.info("Этап facts")
-        user_data[user_id]["facts"] = message
-        user_data[user_id]["stage"] = "pains"
-        await update.message.reply_text("Какие боли и потребности аудитории решает этот текст?")
-    elif user_data[user_id]["stage"] == "pains":
-        logger.info("Этап pains, генерация текста")
-        user_data[user_id]["pains"] = message
-        mode = user_data[user_id]["mode"]
-        response = generate_text(user_id, mode)
-        hashtags = generate_hashtags(user_data[user_id]["topic"])
-        await update.message.reply_text(f"{response}\n\n{hashtags}")
-        logger.info(f"Текст сгенерирован и отправлен для user_id={user_id}")
-        del user_data[user_id]  # Очищаем данные после ответа
+    elif user_data[user_id]["mode"] != "strategy":
+        if user_data[user_id]["stage"] == "goal":
+            logger.info("Этап goal")
+            user_data[user_id]["goal"] = message
+            user_data[user_id]["stage"] = "main_idea"
+            await update.message.reply_text("Какая главная мысль должна остаться у читателя?")
+        elif user_data[user_id]["stage"] == "main_idea":
+            logger.info("Этап main_idea")
+            user_data[user_id]["main_idea"] = message
+            user_data[user_id]["stage"] = "facts"
+            await update.message.reply_text("Какие факты, цифры или примеры могут подтвердить мысль?")
+        elif user_data[user_id]["stage"] == "facts":
+            logger.info("Этап facts")
+            user_data[user_id]["facts"] = message
+            user_data[user_id]["stage"] = "pains"
+            await update.message.reply_text("Какие боли и потребности аудитории решает этот текст?")
+        elif user_data[user_id]["stage"] == "pains":
+            logger.info("Этап pains, генерация текста")
+            user_data[user_id]["pains"] = message
+            mode = user_data[user_id]["mode"]
+            response = generate_text(user_id, mode)
+            hashtags = generate_hashtags(user_data[user_id]["topic"])
+            await update.message.reply_text(f"{response}\n\n{hashtags}")
+            logger.info(f"Текст сгенерирован и отправлен для user_id={user_id}")
+            del user_data[user_id]
+    else:  # mode == "strategy"
+        if user_data[user_id]["stage"] == "client":
+            logger.info("Этап client")
+            user_data[user_id]["client"] = message
+            user_data[user_id]["stage"] = "channels"
+            await update.message.reply_text("Какие каналы вы хотите использовать для привлечения? (Соцсети, реклама, контент)")
+        elif user_data[user_id]["stage"] == "channels":
+            logger.info("Этап channels")
+            user_data[user_id]["channels"] = message
+            user_data[user_id]["stage"] = "result"
+            await update.message.reply_text("Какой главный результат вы хотите получить? (Прибыль, клиенты, узнаваемость)")
+        elif user_data[user_id]["stage"] == "result":
+            logger.info("Этап result, генерация стратегии")
+            user_data[user_id]["result"] = message
+            mode = user_data[user_id]["mode"]
+            response = generate_text(user_id, mode)
+            hashtags = generate_hashtags(user_data[user_id]["topic"])
+            await update.message.reply_text(f"{response}\n\n{hashtags}")
+            logger.info(f"Стратегия сгенерирована и отправлена для user_id={user_id}")
+            del user_data[user_id]
 
 # Обработка текстовых сообщений
 async def handle_text(update: Update, context: ContextTypes):
@@ -262,7 +291,7 @@ async def start(update: Update, context: ContextTypes):
     await update.message.reply_text(
         "Привет! Я твой SMM-помощник. Могу писать посты, сторис, стратегии и описания изображений для Instagram, ВКонтакте и Telegram.\n"
         "Примеры запросов: 'пост про кофе', 'стори для города', 'стратегия для художника', 'изображение про зиму'.\n"
-        "Отвечай на мои вопросы, чтобы получить сильный текст, основанный на лучших книгах по копирайтингу и клиентогенерации!"
+        "Отвечай на мои вопросы, чтобы получить сильный текст или стратегию, основанные на лучших книгах по копирайтингу и клиентогенерации!"
     )
 
 # Webhook handler
