@@ -4,11 +4,6 @@ import requests
 import re
 import os
 import logging
-from time import sleep
-import speech_recognition as sr
-from pydub import AudioSegment
-from fuzzywuzzy import fuzz
-import asyncio
 from aiohttp import web
 
 # Настройка логирования
@@ -18,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAE9_zzdx6_9DocQQbEqPPYsHfzG7gZ-P-w")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "e176b9501183206d063aab78a4abfe82727a24004a07f617c9e06472e2630118")
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
-PORT = int(os.environ.get("PORT", 8080))  # Render даёт порт через переменную PORT
+PORT = int(os.environ.get("PORT", 8080))  # Render задаёт порт через PORT
 
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -33,8 +28,16 @@ def generate_text(prompt: str, mode: str):
             "Структура: начни с вопроса или факта, расскажи про проблему, предложи решение, добавь пример или эмоцию, закончи ярким призывом к действию, связанным с темой. "
             "Пиши только текст поста."
         ).format(prompt=prompt)
-    # Остальные режимы (story, strategy, image) оставь как есть
-    # ... (добавь сюда остальной код generate_text из твоего bot.py)
+    elif mode == "story":
+        full_prompt = (
+            "Ты опытный SMM-специалист. Напиши короткий сторителлинг на русском языке (строго 4-6 предложений) по теме '{prompt}' для Instagram, ВКонтакте и Telegram. "
+            "Пиши ТОЛЬКО на русском языке, любые иностранные слова запрещены — используй исключительно русские эквиваленты для всех идей, эмоций и терминов! "
+            "Если хочешь сказать 'like', пиши 'например', вместо 'correct' — 'правильный', вместо 'her' — 'её', вместо 'conclusion' — 'итог', и так далее. "
+            "Стиль: профессиональный, но живой и дружелюбный, эмоциональный, с метафорами, строго грамматически правильный (без ошибок в падежах и формах), без рекламного тона. "
+            "Структура: 1) Захват внимания историей, связанной с '{prompt}', 2) Проблема героя, 3) Решение с примером, 4) Призыв к действию. "
+            "Пиши только текст."
+        ).format(prompt=prompt)
+    # Оставь остальные режимы (strategy, image) как в твоём коде
 
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
     payload = {
@@ -66,14 +69,16 @@ def generate_hashtags(topic):
 async def handle_message(update: Update, context: ContextTypes):
     user_message = update.message.text.strip().lower()
     print(f"Получено сообщение: {user_message}")
-    # Оставь логику обработки как в твоём коде
+    
     if any(x in user_message for x in ["пост про", "напиши пост про", "пост для"]):
         mode = "post"
         topic = re.sub(r"(пост про|напиши пост про|пост для)", "", user_message).strip()
         response = generate_text(topic, mode)
         hashtags = generate_hashtags(topic)
         await update.message.reply_text(f"{response}\n\n{hashtags}")
-    # ... (добавь остальную логику handle_message)
+    else:
+        await update.message.reply_text("Укажи тип запроса: 'пост про...' или используй 'для' вместо 'про'.")
+    print("Ответ отправлен!")
 
 # Команда /start
 async def start(update: Update, context: ContextTypes):
@@ -89,18 +94,15 @@ async def webhook(request):
     await app.process_update(update)
     return web.Response(text="OK")
 
-# Настройка приложения
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-# Добавь обработку голосовых сообщений, если нужно
-
-# Запуск веб-сервера
+# Запуск
 async def main():
     print("✅ Бот запущен!")
-    await app.bot.set_webhook(url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/webhook")
+    hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "localhost")  # Render даёт свой домен
+    webhook_url = f"https://{hostname}/webhook"
+    await app.bot.set_webhook(url=webhook_url)
     web_app = web.Application()
     web_app.router.add_post('/webhook', webhook)
     return web_app
 
 if __name__ == "__main__":
-    web.run_app(main(), port=PORT)
+    web.run_app(main(), host="0.0.0.0", port=PORT)
