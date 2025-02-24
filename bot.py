@@ -15,6 +15,7 @@ TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "e176b9501183206d063aab78a
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
 PORT = int(os.environ.get("PORT", 8080))  # Render задаёт порт через PORT
 
+# Создаём приложение
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
 # Генерация текста через Together AI API
@@ -28,16 +29,7 @@ def generate_text(prompt: str, mode: str):
             "Структура: начни с вопроса или факта, расскажи про проблему, предложи решение, добавь пример или эмоцию, закончи ярким призывом к действию, связанным с темой. "
             "Пиши только текст поста."
         ).format(prompt=prompt)
-    elif mode == "story":
-        full_prompt = (
-            "Ты опытный SMM-специалист. Напиши короткий сторителлинг на русском языке (строго 4-6 предложений) по теме '{prompt}' для Instagram, ВКонтакте и Telegram. "
-            "Пиши ТОЛЬКО на русском языке, любые иностранные слова запрещены — используй исключительно русские эквиваленты для всех идей, эмоций и терминов! "
-            "Если хочешь сказать 'like', пиши 'например', вместо 'correct' — 'правильный', вместо 'her' — 'её', вместо 'conclusion' — 'итог', и так далее. "
-            "Стиль: профессиональный, но живой и дружелюбный, эмоциональный, с метафорами, строго грамматически правильный (без ошибок в падежах и формах), без рекламного тона. "
-            "Структура: 1) Захват внимания историей, связанной с '{prompt}', 2) Проблема героя, 3) Решение с примером, 4) Призыв к действию. "
-            "Пиши только текст."
-        ).format(prompt=prompt)
-    # Оставь остальные режимы (strategy, image) как в твоём коде
+    # Оставь остальные режимы (story, strategy, image) как в твоём коде, добавь их сюда, если нужно
 
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
     payload = {
@@ -91,17 +83,25 @@ async def start(update: Update, context: ContextTypes):
 # Webhook handler
 async def webhook(request):
     update = Update.de_json(await request.json(), app.bot)
-    await app.process_update(update)
+    if update:
+        await app.process_update(update)
     return web.Response(text="OK")
 
-# Запуск
-async def main():
-    print("✅ Бот запущен!")
-    hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "localhost")  # Render даёт свой домен
+# Настройка и запуск
+async def init_app():
+    print("✅ Бот запускается...")
+    await app.initialize()  # Инициализация приложения
+    hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "localhost")
     webhook_url = f"https://{hostname}/webhook"
     await app.bot.set_webhook(url=webhook_url)
+    print(f"Webhook установлен: {webhook_url}")
+
+async def main():
+    await init_app()
     web_app = web.Application()
     web_app.router.add_post('/webhook', webhook)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     return web_app
 
 if __name__ == "__main__":
