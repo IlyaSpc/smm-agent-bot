@@ -128,7 +128,7 @@ def generate_hashtags(topic):
         "чай": ["#чаепитие", "#утро", "#напитки", "#релакс", "#чайнаяпауза", "#уют"],
         "семья": ["#семейныеценности", "#тепло", "#вместе", "#любовь", "#семьямоёвсё", "#родные"],
         "автомобилестроение": ["#авто", "#машины", "#технологии", "#автолюбители", "#движение", "#скорость", "#инновации", "#автомобиль", "#автоистория", "#автодизайн"],
-        "дизайнер": ["#дизайн", "#креатив", "#творчество", "#дизайнерскаяжизнь", "#искрыгениальности", "#проекты"],
+        "дизайнер": ["#дизайн", "#креатив", "#творчество", "#дизайнерскаяжизнь", "#искрыгениальности", "#проекты", "#дизайнвдохновение", "#графика"],
     }
     relevant_tags = []
     for key in thematic_hashtags:
@@ -170,10 +170,19 @@ async def recognize_voice(file_path):
 # Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     user_id = update.message.from_user.id
-    logger.info(f"Обработка сообщения от user_id={user_id}, is_voice={is_voice}")
+    logger.info(f"Начало обработки сообщения от user_id={user_id}, is_voice={is_voice}")
+    
     try:
-        message = await recognize_voice(f"voice_{update.message.message_id}.ogg") if is_voice else update.message.text.strip().lower()
-        logger.info(f"Сообщение: {message}")
+        # Проверяем наличие текста или голоса
+        if is_voice:
+            message = await recognize_voice(f"voice_{update.message.message_id}.ogg")
+        else:
+            if not update.message.text:
+                logger.warning("Сообщение пустое")
+                await update.message.reply_text("Сообщение пустое. Напиши что-нибудь!")
+                return
+            message = update.message.text.strip().lower()
+        logger.info(f"Получено сообщение: {message}")
     except Exception as e:
         logger.error(f"Ошибка при получении сообщения: {e}")
         await update.message.reply_text("Не смог обработать сообщение. Попробуй ещё раз!")
@@ -181,6 +190,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
 
     # Проверяем этап диалога
     if user_id not in user_data:
+        logger.info("Новый запрос, проверяем тип")
         if any(x in message for x in ["пост про", "напиши пост про", "пост для", "стори про", "напиши стори", "сторителлинг", "сторис", "стори для", "стратегия про", "напиши стратегию", "стратегия для", "изображение про", "изображение для"]):
             user_data[user_id] = {"stage": "goal"}
             if "пост" in message:
@@ -196,35 +206,44 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 user_data[user_id]["mode"] = "image"
                 topic = re.sub(r"(изображение про|изображение для)", "", message).strip()
             user_data[user_id]["topic"] = topic
+            logger.info(f"Установлен тип запроса: {user_data[user_id]['mode']}, тема: {topic}")
             await update.message.reply_text("Что должно сделать человек после чтения текста? (Купить, подписаться, обратиться, обсудить)")
         else:
+            logger.info("Некорректный запрос")
             await update.message.reply_text("Укажи тип запроса: 'пост про...', 'стори про...', 'стратегия про...', 'изображение про...' или используй 'для' вместо 'про'.")
     elif user_data[user_id]["stage"] == "goal":
+        logger.info("Этап goal")
         user_data[user_id]["goal"] = message
         user_data[user_id]["stage"] = "main_idea"
         await update.message.reply_text("Какая главная мысль должна остаться у читателя?")
     elif user_data[user_id]["stage"] == "main_idea":
+        logger.info("Этап main_idea")
         user_data[user_id]["main_idea"] = message
         user_data[user_id]["stage"] = "facts"
         await update.message.reply_text("Какие факты, цифры или примеры могут подтвердить мысль?")
     elif user_data[user_id]["stage"] == "facts":
+        logger.info("Этап facts")
         user_data[user_id]["facts"] = message
         user_data[user_id]["stage"] = "pains"
         await update.message.reply_text("Какие боли и потребности аудитории решает этот текст?")
     elif user_data[user_id]["stage"] == "pains":
+        logger.info("Этап pains, генерация текста")
         user_data[user_id]["pains"] = message
         mode = user_data[user_id]["mode"]
         response = generate_text(user_id, mode)
         hashtags = generate_hashtags(user_data[user_id]["topic"])
         await update.message.reply_text(f"{response}\n\n{hashtags}")
+        logger.info(f"Текст сгенерирован и отправлен для user_id={user_id}")
         del user_data[user_id]  # Очищаем данные после ответа
 
 # Обработка текстовых сообщений
 async def handle_text(update: Update, context: ContextTypes):
+    logger.info("Вызов handle_text")
     await handle_message(update, context, is_voice=False)
 
 # Обработка голосовых сообщений
 async def handle_voice(update: Update, context: ContextTypes):
+    logger.info("Вызов handle_voice")
     voice_file = await update.message.voice.get_file()
     file_path = f"voice_{update.message.message_id}.ogg"
     await voice_file.download_to_drive(file_path)
@@ -234,6 +253,7 @@ async def handle_voice(update: Update, context: ContextTypes):
 
 # Команда /start
 async def start(update: Update, context: ContextTypes):
+    logger.info("Команда /start")
     await update.message.reply_text(
         "Привет! Я твой SMM-помощник. Могу писать посты, сторис, стратегии и описания изображений для Instagram, ВКонтакте и Telegram.\n"
         "Примеры запросов: 'пост про кофе', 'стори для города', 'стратегия для художника', 'изображение про зиму'.\n"
@@ -268,4 +288,5 @@ async def main():
     return web_app
 
 if __name__ == "__main__":
+    logger.info("Запуск бота...")
     web.run_app(main(), host="0.0.0.0", port=PORT)
