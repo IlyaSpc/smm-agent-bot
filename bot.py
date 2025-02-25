@@ -26,7 +26,7 @@ PORT = int(os.environ.get("PORT", 8080))
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
 # Инициализация LanguageTool с правильным публичным API
-tool = language_tool_python.LanguageTool('ru', host='languagetool.org', remote_path='/api/v2')
+tool = language_tool_python.LanguageTool('ru', host='https://languagetool.org/api/v2')
 
 # Контекст из книг
 BOOK_CONTEXT = """
