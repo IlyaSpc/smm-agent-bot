@@ -8,7 +8,7 @@ from aiohttp import web
 import speech_recognition as sr
 from pydub import AudioSegment
 from time import sleep
-from fpdf import FPDF  # Добавляем библиотеку для PDF
+from fpdf import FPDF
 
 # Настройка логирования
 logging.basicConfig(
@@ -75,9 +75,12 @@ def correct_text(text):
 
 # Создание PDF из текста
 def create_pdf(text, filename="strategy.pdf"):
+    if not os.path.exists("DejaVuSans.ttf"):
+        logger.error("Шрифт DejaVuSans.ttf не найден!")
+        raise FileNotFoundError("Шрифт DejaVuSans.ttf не найден!")
     pdf = FPDF()
     pdf.add_page()
-    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)  # Поддержка Unicode для русского текста
+    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
     pdf.set_font("DejaVu", size=12)
     pdf.multi_cell(0, 10, text)
     pdf.output(filename)
@@ -433,7 +436,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                     logger.info(f"Стратегия успешно отправлена как PDF для user_id={user_id}")
                 except Exception as e:
                     logger.error(f"Ошибка отправки стратегии как PDF: {e}")
-                    await update.message.reply_text("Не удалось отправить стратегию как PDF. Вот текст:\n" + response[:4000] + "\n\n" + hashtags)
+                    await update.message.reply_text("Не удалось отправить стратегию как PDF. Вот текст (сокращённый):\n" + response[:4000] + "\n\n" + hashtags)
                 logger.info(f"Стратегия сгенерирована для user_id={user_id}")
                 del user_data[user_id]
 
