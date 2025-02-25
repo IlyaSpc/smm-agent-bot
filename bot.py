@@ -25,8 +25,8 @@ PORT = int(os.environ.get("PORT", 8080))
 
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-# Инициализация LanguageTool с правильным публичным API
-tool = language_tool_python.LanguageTool('ru', host='https://languagetool.org/api/v2')
+# Инициализация LanguageTool временно отключена
+# tool = language_tool_python.LanguageTool('ru', host='https://languagetool.org/api/v2')
 
 # Контекст из книг
 BOOK_CONTEXT = """
@@ -49,9 +49,10 @@ async def error_handler(update: Update, context: ContextTypes):
     if update and update.message:
         await update.message.reply_text("Что-то пошло не так. Попробуй ещё раз!")
 
-# Проверка орфографии текста
+# Проверка орфографии текста (временно отключена)
 def correct_text(text):
-    return tool.correct(text)
+    # return tool.correct(text)
+    return text  # Возвращаем текст без изменений
 
 # Генерация текста через Together AI API
 def generate_text(user_id, mode):
@@ -172,8 +173,8 @@ def generate_hashtags(topic):
     
     combined = list(set(base_hashtags + relevant_tags))
     combined.sort(key=lambda x: (len(x), x in topic.lower()), reverse=True)
-    corrected_tags = [tool.correct(tag[1:]) for tag in combined[:8]]
-    final_tags = [f"#{tag}" for tag in corrected_tags] + ["#инстаграм", "#вконтакте", "#телеграм"]
+    # corrected_tags = [tool.correct(tag[1:]) for tag in combined[:8]]  # Отключено из-за LanguageTool
+    final_tags = combined[:8] + ["#инстаграм", "#вконтакте", "#телеграм"]
     return " ".join(final_tags)
 
 # Генерация идей для контента
