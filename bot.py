@@ -25,8 +25,8 @@ PORT = int(os.environ.get("PORT", 8080))
 
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-# Инициализация LanguageTool временно отключена
-# tool = language_tool_python.LanguageTool('ru', host='https://languagetool.org/api/v2')
+# Инициализация LanguageTool
+tool = language_tool_python.LanguageTool('ru', host='languagetool.org', remote_path='/api/v2')
 
 # Контекст из книг
 BOOK_CONTEXT = """
@@ -49,10 +49,9 @@ async def error_handler(update: Update, context: ContextTypes):
     if update and update.message:
         await update.message.reply_text("Что-то пошло не так. Попробуй ещё раз!")
 
-# Проверка орфографии текста (временно отключена)
+# Проверка орфографии текста
 def correct_text(text):
-    # return tool.correct(text)
-    return text  # Возвращаем текст без изменений
+    return tool.correct(text)
 
 # Генерация текста через Together AI API
 def generate_text(user_id, mode):
@@ -134,7 +133,9 @@ def generate_text(user_id, mode):
             response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=15)
             if response.status_code == 200:
                 logger.info("Успешный ответ от Together AI")
-                corrected_text = correct_text(response.json()["choices"][0]["message"]["content"].strip())
+                raw_text = response.json()["choices"][0]["message"]["content"].strip()
+                logger.info(f"Получен текст от Together AI: {raw_text}")
+                corrected_text = correct_text(raw_text)
                 return corrected_text
             else:
                 logger.error(f"Ошибка API: {response.status_code} - {response.text}")
@@ -175,7 +176,8 @@ def generate_hashtags(topic):
     
     combined = list(set(base_hashtags + relevant_tags))
     combined.sort(key=lambda x: (len(x), x in topic.lower()), reverse=True)
-    final_tags = combined[:8] + ["#инстаграм", "#вконтакте", "#телеграм"]
+    corrected_tags = [tool.correct(tag[1:]) for tag in combined[:8]]
+    final_tags = [f"#{tag}" for tag in corrected_tags] + ["#инстаграм", "#вконтакте", "#телеграм"]
     return " ".join(final_tags)
 
 # Генерация идей для контента
@@ -202,7 +204,9 @@ def generate_ideas(topic):
         try:
             response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=10)
             if response.status_code == 200:
-                return response.json()["choices"][0]["message"]["content"].strip().split("\n")
+                raw_text = response.json()["choices"][0]["message"]["content"].strip()
+                logger.info(f"Получены идеи от Together AI: {raw_text}")
+                return raw_text.split("\n")
             else:
                 logger.error(f"Ошибка API при генерации идей: {response.status_code} - {response.text}")
         except (requests.RequestException, TimeoutError) as e:
@@ -429,4 +433,5 @@ async def main():
 
 if __name__ == "__main__":
     logger.info("Запуск бота...")
+    logger.info(f"Слушаю порт {PORT}")
     web.run_app(main(), host="0.0.0.0", port=PORT)
