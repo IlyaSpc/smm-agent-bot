@@ -8,7 +8,7 @@ from aiohttp import web
 import speech_recognition as sr
 from pydub import AudioSegment
 from time import sleep
-import language_tool_python
+from language_tool_python.utils import RemoteLanguageTool  # Используем RemoteLanguageTool
 
 # Настройка логирования
 logging.basicConfig(
@@ -25,8 +25,8 @@ PORT = int(os.environ.get("PORT", 8080))
 
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-# Инициализация LanguageTool с полным URL в host
-tool = language_tool_python.LanguageTool('ru', host='https://languagetool.org/api/v2')
+# Инициализация RemoteLanguageTool для работы с публичным API
+tool = RemoteLanguageTool('ru', 'https://languagetool.org/api/v2')
 
 # Контекст из книг
 BOOK_CONTEXT = """
