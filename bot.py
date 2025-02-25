@@ -7,6 +7,7 @@ import logging
 from aiohttp import web
 import speech_recognition as sr
 from pydub import AudioSegment
+from time import sleep
 import language_tool_python
 
 # Настройка логирования
@@ -24,9 +25,8 @@ PORT = int(os.environ.get("PORT", 8080))
 
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-# Инициализация LanguageTool для русского языка
-from language_tool_python import LanguageTool
-tool = LanguageTool('ru', host='https://languagetool.org/api')
+# Инициализация LanguageTool с правильным публичным API
+tool = language_tool_python.LanguageTool('ru', host='languagetool.org', remote_path='/api/v2')
 
 # Контекст из книг
 BOOK_CONTEXT = """
@@ -54,9 +54,8 @@ def correct_text(text):
     return tool.correct(text)
 
 # Генерация текста через Together AI API
-def generate_text(user_id: int, mode: str):
-    logger.info(f"Генерация текста для user_id={user_id}, mode={mode}")
-    topic = user_data[user_id]["topic"]
+def generate_text(user_id, mode):
+    topic = user_data[user_id].get("topic", "не указано")
     
     if mode in ["post", "story", "image"]:
         goal = user_data[user_id].get("goal", "не указано")
@@ -171,7 +170,6 @@ def generate_hashtags(topic):
     if not relevant_tags:
         relevant_tags = ["#соцсети", "#содержание", "#идеи", "#полезно", "#жизнь"]
     
-    # Объединяем и сортируем по релевантности
     combined = list(set(base_hashtags + relevant_tags))
     combined.sort(key=lambda x: (len(x), x in topic.lower()), reverse=True)
     corrected_tags = [tool.correct(tag[1:]) for tag in combined[:8]]
@@ -206,6 +204,28 @@ def generate_ideas(topic):
             logger.warning(f"Попытка {attempt+1} зависла, ждём 5 сек... Ошибка: {e}")
             sleep(5)
     return ["1) Идея не сгенерировалась, попробуй ещё раз!"]
+
+# Распознавание голосовых сообщений
+async def recognize_voice(file_path):
+    logger.info(f"Распознавание голосового сообщения: {file_path}")
+    audio = AudioSegment.from_ogg(file_path)
+    audio.export("temp.wav", format="wav")
+    recognizer = sr.Recognizer()
+    with sr.AudioFile("temp.wav") as source:
+        audio_data = recognizer.record(source)
+        try:
+            text = recognizer.recognize_google(audio_data, language="ru-RU")
+            logger.info(f"Распознанный текст: {text}")
+            os.remove("temp.wav")
+            return text
+        except sr.UnknownValueError:
+            logger.error("Не удалось распознать голос")
+            os.remove("temp.wav")
+            return "Не понял, что ты сказал. Повтори!"
+        except sr.RequestError as e:
+            logger.error(f"Ошибка сервиса распознавания: {e}")
+            os.remove("temp.wav")
+            return "Ошибка сервиса распознавания. Попробуй ещё раз!"
 
 # Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes, is_voice=False):

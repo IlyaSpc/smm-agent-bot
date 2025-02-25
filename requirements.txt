@@ -1,6 +1,6 @@
+python-telegram-bot==20.7
 requests
-python-telegram-bot
+language-tool-python
 aiohttp
 speechrecognition
 pydub
-language-tool-python
