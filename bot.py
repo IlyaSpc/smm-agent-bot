@@ -7,7 +7,7 @@ import logging
 from aiohttp import web
 import speech_recognition as sr
 from pydub import AudioSegment
-from spellchecker import SpellChecker
+import language_tool_python
 
 # Настройка логирования
 logging.basicConfig(
@@ -24,8 +24,8 @@ PORT = int(os.environ.get("PORT", 8080))
 
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-# Инициализация SpellChecker для русского языка
-spell = SpellChecker(language='ru')
+# Инициализация LanguageTool для русского языка
+tool = language_tool_python.LanguageTool('ru-RU')
 
 # Контекст из книг
 BOOK_CONTEXT = """
@@ -50,9 +50,7 @@ async def error_handler(update: Update, context: ContextTypes):
 
 # Проверка орфографии текста
 def correct_text(text):
-    words = text.split()
-    corrected_words = [spell.correction(word) if spell.correction(word) else word for word in words]
-    return " ".join(corrected_words)
+    return tool.correct(text)
 
 # Генерация текста через Together AI API
 def generate_text(user_id: int, mode: str):
@@ -162,6 +160,7 @@ def generate_hashtags(topic):
         "музыкант": ["#музыка", "#творчество", "#артист", "#музыкант", "#звук", "#продюсер", "#талант", "#концерт"],
         "искусство": ["#искусство", "#творчество", "#культура", "#арт", "#вдохновение", "#эмоции", "#история"],
         "маркетолог": ["#маркетинг", "#продвижение", "#smm", "#маркетолог", "#бизнес", "#конверсия", "#лиды", "#рост"],
+        "самолёты": ["#самолёты", "#авиация", "#полёты", "#технологии", "#путешествия", "#небо", "#пилот"],
     }
     relevant_tags = []
     for key in thematic_hashtags:
@@ -171,10 +170,10 @@ def generate_hashtags(topic):
     if not relevant_tags:
         relevant_tags = ["#соцсети", "#содержание", "#идеи", "#полезно", "#жизнь"]
     
-    # Объединяем и сортируем по релевантности (эвристика: длина слова + наличие в теме)
+    # Объединяем и сортируем по релевантности
     combined = list(set(base_hashtags + relevant_tags))
     combined.sort(key=lambda x: (len(x), x in topic.lower()), reverse=True)
-    corrected_tags = [spell.correction(tag[1:]) if spell.correction(tag[1:]) else tag[1:] for tag in combined[:8]]
+    corrected_tags = [tool.correct(tag[1:]) for tag in combined[:8]]
     final_tags = [f"#{tag}" for tag in corrected_tags] + ["#инстаграм", "#вконтакте", "#телеграм"]
     return " ".join(final_tags)
 
@@ -206,33 +205,6 @@ def generate_ideas(topic):
             logger.warning(f"Попытка {attempt+1} зависла, ждём 5 сек... Ошибка: {e}")
             sleep(5)
     return ["1) Идея не сгенерировалась, попробуй ещё раз!"]
-
-# Распознавание голоса
-async def recognize_voice(file_path):
-    logger.info(f"Распознавание голоса для файла: {file_path}")
-    try:
-        audio = AudioSegment.from_ogg(file_path)
-        wav_file = file_path.replace(".ogg", ".wav")
-        audio.export(wav_file, format="wav")
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_file) as source:
-            audio_data = recognizer.record(source)
-            text = recognizer.recognize_google(audio_data, language="ru-RU")
-        os.remove(wav_file)
-        logger.info(f"Распознанный текст: {text}")
-        return text
-    except sr.UnknownValueError:
-        logger.warning("Не удалось распознать голос")
-        os.remove(wav_file)
-        return "Не удалось распознать голос, попробуй ещё раз!"
-    except sr.RequestError as e:
-        logger.error(f"Ошибка сервиса распознавания: {e}")
-        os.remove(wav_file)
-        return "Ошибка сервиса распознавания, повтори позже!"
-    except Exception as e:
-        logger.error(f"Ошибка в recognize_voice: {e}")
-        os.remove(wav_file)
-        raise
 
 # Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes, is_voice=False):
@@ -292,70 +264,82 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         else:
             logger.info("Некорректный запрос")
             await update.message.reply_text("Укажи тип запроса: 'пост про...', 'стори про...', 'стратегия про...', 'изображение про...', 'аналитика для...'.")
-    elif user_data[user_id]["mode"] == "analytics":
-        if user_data[user_id]["stage"] == "reach":
-            logger.info("Этап reach")
-            user_data[user_id]["reach"] = message
-            user_data[user_id]["stage"] = "engagement"
-            await update.message.reply_text("Какая вовлечённость? (Например, 20 лайков, 5 комментариев)")
-        elif user_data[user_id]["stage"] == "engagement":
-            logger.info("Этап engagement, генерация аналитики")
-            user_data[user_id]["engagement"] = message
-            mode = user_data[user_id]["mode"]
-            response = generate_text(user_id, mode)
-            await update.message.reply_text(response)
-            logger.info(f"Аналитика сгенерирована и отправлена для user_id={user_id}")
-            del user_data[user_id]
-    elif user_data[user_id]["mode"] != "strategy":
-        if user_data[user_id]["stage"] == "ideas":
-            logger.info("Этап ideas")
-            user_data[user_id]["idea"] = message
-            user_data[user_id]["stage"] = "goal"
-            await update.message.reply_text("Что должно сделать человек после чтения текста? (Купить, подписаться, обратиться, обсудить)")
-        elif user_data[user_id]["stage"] == "goal":
-            logger.info("Этап goal")
-            user_data[user_id]["goal"] = message
-            user_data[user_id]["stage"] = "main_idea"
-            await update.message.reply_text("Какая главная мысль должна остаться у читателя?")
-        elif user_data[user_id]["stage"] == "main_idea":
-            logger.info("Этап main_idea")
-            user_data[user_id]["main_idea"] = message
-            user_data[user_id]["stage"] = "facts"
-            await update.message.reply_text("Какие факты, цифры или примеры могут подтвердить мысль?")
-        elif user_data[user_id]["stage"] == "facts":
-            logger.info("Этап facts")
-            user_data[user_id]["facts"] = message
-            user_data[user_id]["stage"] = "pains"
-            await update.message.reply_text("Какие боли и потребности аудитории решает этот текст?")
-        elif user_data[user_id]["stage"] == "pains":
-            logger.info("Этап pains, генерация текста")
-            user_data[user_id]["pains"] = message
-            mode = user_data[user_id]["mode"]
-            response = generate_text(user_id, mode)
-            hashtags = generate_hashtags(user_data[user_id]["topic"])
-            await update.message.reply_text(f"{response}\n\n{hashtags}")
-            logger.info(f"Текст сгенерирован и отправлен для user_id={user_id}")
-            del user_data[user_id]
-    else:  # mode == "strategy"
-        if user_data[user_id]["stage"] == "client":
-            logger.info("Этап client")
-            user_data[user_id]["client"] = message
-            user_data[user_id]["stage"] = "channels"
-            await update.message.reply_text("Какие каналы вы хотите использовать для привлечения? (Соцсети, реклама, содержание)")
-        elif user_data[user_id]["stage"] == "channels":
-            logger.info("Этап channels")
-            user_data[user_id]["channels"] = message
-            user_data[user_id]["stage"] = "result"
-            await update.message.reply_text("Какой главный результат вы хотите получить? (Прибыль, клиенты, узнаваемость)")
-        elif user_data[user_id]["stage"] == "result":
-            logger.info("Этап result, генерация стратегии")
-            user_data[user_id]["result"] = message
-            mode = user_data[user_id]["mode"]
-            response = generate_text(user_id, mode)
-            hashtags = generate_hashtags(user_data[user_id]["topic"])
-            await update.message.reply_text(f"{response}\n\n{hashtags}")
-            logger.info(f"Стратегия сгенерирована и отправлена для user_id={user_id}")
-            del user_data[user_id]
+    else:
+        current_topic = user_data[user_id]["topic"]
+        if current_topic in message and user_data[user_id]["mode"] != "strategy" and user_data[user_id]["stage"] != "ideas":
+            logger.info(f"Продолжаем текущий запрос с темой: {current_topic}")
+        elif user_data[user_id]["mode"] == "analytics":
+            if user_data[user_id]["stage"] == "reach":
+                logger.info("Этап reach")
+                user_data[user_id]["reach"] = message
+                user_data[user_id]["stage"] = "engagement"
+                await update.message.reply_text("Какая вовлечённость? (Например, 20 лайков, 5 комментариев)")
+            elif user_data[user_id]["stage"] == "engagement":
+                logger.info("Этап engagement, генерация аналитики")
+                user_data[user_id]["engagement"] = message
+                mode = user_data[user_id]["mode"]
+                response = generate_text(user_id, mode)
+                await update.message.reply_text(response)
+                logger.info(f"Аналитика сгенерирована и отправлена для user_id={user_id}")
+                del user_data[user_id]
+        elif user_data[user_id]["mode"] != "strategy":
+            if user_data[user_id]["stage"] == "ideas":
+                logger.info("Этап ideas")
+                user_data[user_id]["idea"] = message
+                user_data[user_id]["stage"] = "goal"
+                await update.message.reply_text("Что должно сделать человек после чтения текста? (Купить, подписаться, обратиться, обсудить)")
+            elif user_data[user_id]["stage"] == "goal":
+                logger.info("Этап goal")
+                user_data[user_id]["goal"] = message
+                user_data[user_id]["stage"] = "main_idea"
+                await update.message.reply_text("Какая главная мысль должна остаться у читателя?")
+            elif user_data[user_id]["stage"] == "main_idea":
+                logger.info("Этап main_idea")
+                user_data[user_id]["main_idea"] = message
+                user_data[user_id]["stage"] = "facts"
+                await update.message.reply_text("Какие факты, цифры или примеры могут подтвердить мысль?")
+            elif user_data[user_id]["stage"] == "facts":
+                logger.info("Этап facts")
+                user_data[user_id]["facts"] = message
+                user_data[user_id]["stage"] = "pains"
+                await update.message.reply_text("Какие боли и потребности аудитории решает этот текст?")
+            elif user_data[user_id]["stage"] == "pains":
+                logger.info("Этап pains, генерация текста")
+                user_data[user_id]["pains"] = message
+                mode = user_data[user_id]["mode"]
+                response = generate_text(user_id, mode)
+                hashtags = generate_hashtags(user_data[user_id]["topic"])
+                try:
+                    await update.message.reply_text(f"{response}\n\n{hashtags}")
+                    logger.info(f"Текст успешно отправлен для user_id={user_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка отправки текста: {e}")
+                logger.info(f"Текст сгенерирован для user_id={user_id}")
+                del user_data[user_id]
+        else:  # mode == "strategy"
+            if user_data[user_id]["stage"] == "client":
+                logger.info("Этап client")
+                user_data[user_id]["client"] = message
+                user_data[user_id]["stage"] = "channels"
+                await update.message.reply_text("Какие каналы вы хотите использовать для привлечения? (Соцсети, реклама, содержание)")
+            elif user_data[user_id]["stage"] == "channels":
+                logger.info("Этап channels")
+                user_data[user_id]["channels"] = message
+                user_data[user_id]["stage"] = "result"
+                await update.message.reply_text("Какой главный результат вы хотите получить? (Прибыль, клиенты, узнаваемость)")
+            elif user_data[user_id]["stage"] == "result":
+                logger.info("Этап result, генерация стратегии")
+                user_data[user_id]["result"] = message
+                mode = user_data[user_id]["mode"]
+                response = generate_text(user_id, mode)
+                hashtags = generate_hashtags(user_data[user_id]["topic"])
+                try:
+                    await update.message.reply_text(f"{response}\n\n{hashtags}")
+                    logger.info(f"Стратегия успешно отправлена для user_id={user_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка отправки стратегии: {e}")
+                logger.info(f"Стратегия сгенерирована для user_id={user_id}")
+                del user_data[user_id]
 
 # Обработка текстовых сообщений
 async def handle_text(update: Update, context: ContextTypes):
@@ -400,7 +384,7 @@ async def init_app():
 
 async def main():
     await init_app()
-    app.add_error_handler(error_handler)  # Регистрируем обработчик ошибок
+    app.add_error_handler(error_handler)
     web_app = web.Application()
     web_app.router.add_post('/webhook', webhook)
     app.add_handler(CommandHandler("start", start))

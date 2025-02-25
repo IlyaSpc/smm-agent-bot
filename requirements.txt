@@ -3,4 +3,4 @@ python-telegram-bot
 aiohttp
 speechrecognition
 pydub
-pyspellchecker
+language-tool-python
