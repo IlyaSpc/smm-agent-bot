@@ -8,7 +8,7 @@ from aiohttp import web
 import speech_recognition as sr
 from pydub import AudioSegment
 from time import sleep
-from language_tool_python.utils import RemoteLanguageTool  # Используем RemoteLanguageTool
+from language_tool_python.utils import RemoteLanguageTool  # Используем RemoteLanguageTool из версии 2.9.0
 
 # Настройка логирования
 logging.basicConfig(

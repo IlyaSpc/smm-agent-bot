@@ -1,6 +1,6 @@
 python-telegram-bot==20.7
 requests
-language-tool-python==2.7.1
+language-tool-python==2.9.0
 aiohttp
 speechrecognition
 pydub
