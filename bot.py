@@ -8,7 +8,6 @@ from aiohttp import web
 import speech_recognition as sr
 from pydub import AudioSegment
 from time import sleep
-from language_tool_python.utils import RemoteLanguageTool  # Используем RemoteLanguageTool из версии 2.9.0
 
 # Настройка логирования
 logging.basicConfig(
@@ -21,12 +20,10 @@ logger = logging.getLogger(__name__)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAE9_zzdx6_9DocQQbEqPPYsHfzG7gZ-P-w")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "e176b9501183206d063aab78a4abfe82727a24004a07f617c9e06472e2630118")
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
+LANGUAGE_TOOL_URL = "https://languagetool.org/api/v2/check"
 PORT = int(os.environ.get("PORT", 8080))
 
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-# Инициализация RemoteLanguageTool для работы с публичным API
-tool = RemoteLanguageTool('ru', 'https://languagetool.org/api/v2')
 
 # Контекст из книг
 BOOK_CONTEXT = """
@@ -49,9 +46,31 @@ async def error_handler(update: Update, context: ContextTypes):
     if update and update.message:
         await update.message.reply_text("Что-то пошло не так. Попробуй ещё раз!")
 
-# Проверка орфографии текста
+# Проверка орфографии текста через публичный API LanguageTool
 def correct_text(text):
-    return tool.correct(text)
+    payload = {
+        "text": text,
+        "language": "ru"
+    }
+    try:
+        response = requests.post(LANGUAGE_TOOL_URL, data=payload, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            corrected_text = text
+            offset = 0
+            for match in data.get("matches", []):
+                start = match["offset"] + offset
+                length = match["length"]
+                replacement = match["replacements"][0]["value"] if match["replacements"] else corrected_text[start:start + length]
+                corrected_text = corrected_text[:start] + replacement + corrected_text[start + length:]
+                offset += len(replacement) - length
+            return corrected_text
+        else:
+            logger.error(f"Ошибка LanguageTool API: {response.status_code} - {response.text}")
+            return text  # Возвращаем исходный текст при ошибке
+    except requests.RequestException as e:
+        logger.error(f"Ошибка запроса к LanguageTool API: {e}")
+        return text  # Возвращаем исходный текст при ошибке
 
 # Генерация текста через Together AI API
 def generate_text(user_id, mode):
@@ -176,7 +195,7 @@ def generate_hashtags(topic):
     
     combined = list(set(base_hashtags + relevant_tags))
     combined.sort(key=lambda x: (len(x), x in topic.lower()), reverse=True)
-    corrected_tags = [tool.correct(tag[1:]) for tag in combined[:8]]
+    corrected_tags = [correct_text(tag[1:]) for tag in combined[:8]]
     final_tags = [f"#{tag}" for tag in corrected_tags] + ["#инстаграм", "#вконтакте", "#телеграм"]
     return " ".join(final_tags)
 
