@@ -8,6 +8,7 @@ from aiohttp import web
 import speech_recognition as sr
 from pydub import AudioSegment
 from time import sleep
+from fpdf import FPDF  # Добавляем библиотеку для PDF
 
 # Настройка логирования
 logging.basicConfig(
@@ -67,10 +68,20 @@ def correct_text(text):
             return corrected_text
         else:
             logger.error(f"Ошибка LanguageTool API: {response.status_code} - {response.text}")
-            return text  # Возвращаем исходный текст при ошибке
+            return text
     except requests.RequestException as e:
         logger.error(f"Ошибка запроса к LanguageTool API: {e}")
-        return text  # Возвращаем исходный текст при ошибке
+        return text
+
+# Создание PDF из текста
+def create_pdf(text, filename="strategy.pdf"):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)  # Поддержка Unicode для русского текста
+    pdf.set_font("DejaVu", size=12)
+    pdf.multi_cell(0, 10, text)
+    pdf.output(filename)
+    return filename
 
 # Генерация текста через Together AI API
 def generate_text(user_id, mode):
@@ -409,10 +420,20 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 response = generate_text(user_id, mode)
                 hashtags = generate_hashtags(user_data[user_id]["topic"])
                 try:
-                    await update.message.reply_text(f"{response}\n\n{hashtags}")
-                    logger.info(f"Стратегия успешно отправлена для user_id={user_id}")
+                    # Создаём PDF из текста стратегии
+                    pdf_file = create_pdf(response)
+                    with open(pdf_file, 'rb') as f:
+                        await context.bot.send_document(
+                            chat_id=update.message.chat_id,
+                            document=f,
+                            filename=f"Стратегия_{topic}.pdf",
+                            caption=f"Вот твоя стратегия в PDF!\n\n{hashtags}"
+                        )
+                    os.remove(pdf_file)  # Удаляем временный файл
+                    logger.info(f"Стратегия успешно отправлена как PDF для user_id={user_id}")
                 except Exception as e:
-                    logger.error(f"Ошибка отправки стратегии: {e}")
+                    logger.error(f"Ошибка отправки стратегии как PDF: {e}")
+                    await update.message.reply_text("Не удалось отправить стратегию как PDF. Вот текст:\n" + response[:4000] + "\n\n" + hashtags)
                 logger.info(f"Стратегия сгенерирована для user_id={user_id}")
                 del user_data[user_id]
 

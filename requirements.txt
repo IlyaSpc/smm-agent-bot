@@ -3,3 +3,4 @@ requests
 aiohttp
 speechrecognition
 pydub
+fpdf
