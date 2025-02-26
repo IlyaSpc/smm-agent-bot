@@ -79,12 +79,10 @@ def correct_text(text):
 # Распознавание голосовых сообщений
 async def recognize_voice(file_path):
     try:
-        # Конвертируем OGG в WAV
         audio = AudioSegment.from_ogg(file_path)
         wav_path = file_path.replace(".ogg", ".wav")
         audio.export(wav_path, format="wav")
         
-        # Распознаём речь
         recognizer = sr.Recognizer()
         with sr.AudioFile(wav_path) as source:
             audio_data = recognizer.record(source)
@@ -120,21 +118,21 @@ def create_pdf(text, filename="strategy.pdf"):
 # Генерация разнообразных идей для постов, сторис и т.д.
 def generate_ideas(topic):
     idea_pool = [
-        f"Расскажи, как {topic} помогает решать повседневные проблемы.",
-        f"Поделись фактом о {topic}, который удивит твоих подписчиков.",
-        f"Покажи, как {topic} меняет жизнь к лучшему на примере.",
-        f"Опиши, почему {topic} — это то, что нужно каждому прямо сейчас.",
-        f"Сравни {topic} с чем-то неожиданным, чтобы зацепить внимание.",
-        f"Дай совет, как использовать {topic} для улучшения дня.",
-        f"Расскажи историю о том, как {topic} спас ситуацию.",
-        f"Объясни, как {topic} решает проблему, о которой мало кто задумывается.",
-        f"Покажи, как {topic} вдохновляет на новые свершения.",
-        f"Поделись мифом о {topic} и развей его правдой.",
-        f"Опиши эмоции, которые вызывает {topic} у людей.",
-        f"Расскажи, как {topic} может стать частью утренней рутины.",
-        f"Покажи связь между {topic} и чем-то актуальным сегодня.",
-        f"Дай три причины, почему {topic} стоит попробовать уже сегодня.",
-        f"Опиши, как {topic} помогает справляться с хаосом жизни."
+        f"Расскажи, как {topic} решает твои повседневные заботы.",
+        f"Поделись необычным фактом о {topic}, который мало кто знает.",
+        f"Покажи через пример, как {topic} делает жизнь ярче.",
+        f"Объясни, почему {topic} — это то, что нужно каждому.",
+        f"Сравни {topic} с чем-то неожиданным и цепляющим.",
+        f"Дай простой совет, как {topic} улучшает день.",
+        f"Расскажи историю, где {topic} стал спасением.",
+        f"Раскрой секрет, как {topic} помогает в незаметных мелочах.",
+        f"Покажи, как {topic} мотивирует на большие перемены.",
+        f"Развей популярный миф о {topic} с помощью фактов.",
+        f"Опиши чувства, которые вызывает {topic} у тебя и других.",
+        f"Предложи, как сделать {topic} частью утреннего ритуала.",
+        f"Свяжи {topic} с чем-то актуальным и трендовым.",
+        f"Назови три причины попробовать {topic} прямо сейчас.",
+        f"Расскажи, как {topic} спасает от хаоса и суеты."
     ]
     selected_ideas = random.sample(idea_pool, 3)  # Выбираем 3 случайные уникальные идеи
     return [f"{i+1}. {idea}" for i, idea in enumerate(selected_ideas)]
@@ -157,7 +155,7 @@ def generate_text(user_id, mode):
                 "Напиши пост на русском языке (10-12 предложений) по теме '{topic}' для социальных сетей, используя идею: {idea}. "
                 "Цель текста: {goal}. Главная мысль: {main_idea}. Факты: {facts}. Боли и потребности аудитории: {pains}. "
                 "Контекст из книг: '{context}'. "
-                "Пиши исключительно на русском языке, любые иностранные слова категорически запрещены — используй только русские эквиваленты (например, 'firsthand' — 'из первых рук', 'like' — 'например'). "
+                "Пиши исключительно на русском языке, любые иностранные слова запрещены — используй только русские эквиваленты (например, 'firsthand' — 'из первых рук', 'like' — 'например'). "
                 "Пример текста: 'Хотите больше клиентов? Узнайте, как простые шаги помогают вырасти!' "
                 "Стиль: дружелюбный, живой, разговорный, с эмоциями, краткий, ясный, без штампов, канцеляризмов, с фактами вместо общих фраз, добавь позитив и лёгкий юмор. "
                 "Структура: начни с цепляющего вопроса или факта (AIDA), раскрой проблему аудитории, предложи решение, закрой возражения, покажи выгоду через пример, заверши призывом к действию. Пиши только текст поста."
@@ -312,7 +310,8 @@ def generate_hashtags(topic):
         "барбершопа": ["#барбершоп", "#стрижка", "#уход", "#стиль", "#мужчины", "#красота"],
         "кофе": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
         "курения": ["#здоровье", "#вред", "#курение", "#отказ", "#жизнь", "#мотивация"],
-        "поезда": ["#поезда", "#путешествия", "#транспорт", "#технологии", "#дорога", "#приключения"]
+        "поезда": ["#поезда", "#путешествия", "#транспорт", "#технологии", "#дорога", "#приключения"],
+        "лето": ["#лето", "#жара", "#отдых", "#солнце", "#природа", "#энергия"]
     }
     relevant_tags = []
     for key in thematic_hashtags:
@@ -383,7 +382,8 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         stage = user_data[user_id]["stage"]
 
         if mode in ["post", "story", "image", "hashtags", "analytics"] and stage == "topic":
-            user_data[user_id]["topic"] = message
+            clean_topic = re.sub(r"^(о|про|для|об|на)\s+", "", message).strip()
+            user_data[user_id]["topic"] = clean_topic
             if mode == "hashtags":
                 response = generate_text(user_id, "hashtags")
                 await update.message.reply_text(response, reply_markup=reply_markup)
@@ -392,9 +392,9 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 user_data[user_id]["stage"] = "reach"
                 await update.message.reply_text("Какой охват у вашего контента? (Например, 500 просмотров)", reply_markup=reply_markup)
             else:
-                ideas = generate_ideas(message)
+                ideas = generate_ideas(clean_topic)
                 user_data[user_id]["stage"] = "ideas"
-                await update.message.reply_text(f"Вот идеи для '{message}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!", reply_markup=reply_markup)
+                await update.message.reply_text(f"Вот идеи для '{clean_topic}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!", reply_markup=reply_markup)
         elif mode in ["post", "story", "image"] and stage == "ideas":
             if message.isdigit() and 1 <= int(message) <= 3:
                 idea_num = int(message)
@@ -489,7 +489,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             await update.message.reply_text(f"{response}\n\n{hashtags}", reply_markup=reply_markup)
             del user_data[user_id]
     else:
-        # Если сообщение не из меню и нет активной стадии
         await update.message.reply_text("Выбери действие из меню ниже!", reply_markup=reply_markup)
 
 # Обработка текстовых сообщений
