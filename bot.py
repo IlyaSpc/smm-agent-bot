@@ -18,7 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Настройки API
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAHD9S-LbNMLdHPYtdFZRwg_2JBu_tdd0ng") #поменял токен
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAHD9S-LbNMLdHPYtdFZRwg_2JBu_tdd0ng")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "e176b9501183206d063aab78a4abfe82727a24004a07f617c9e06472e2630118")
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
 LANGUAGE_TOOL_URL = "https://languagetool.org/api/v2/check"
@@ -136,7 +136,8 @@ def generate_text(user_id, mode):
             "Разработай стратегию клиентогенерации на русском языке по теме '{topic}'. "
             "Целевая аудитория: {client}. Каналы привлечения: {channels}. Главный результат: {result}. "
             "Контекст из книг: '{context}'. "
-            "Пиши ТОЛЬКО на русском языке, любые иностранные слова запрещены — используй русские эквиваленты (например, 'firsthand' — 'на собственном опыте', 'returns' — 'возврат'). "
+            "Пиши ТОЛЬКО на русском языке, строго запрещено использовать любые иностранные слова — заменяй их русскими эквивалентами (например, 'firsthand' — 'на собственном опыте', 'often' — 'часто', 'juggle' — 'сочетать', 'trend' — 'тренд', 'confidence' — 'уверенность', 'budget' — 'бюджет', 'products' — 'продукты'). "
+            "Если в тексте появятся иностранные слова, замени их на русские перед возвратом результата. "
             "Стиль: конкретный, пошаговый, дружелюбный, с примерами, без штампов, с фактами. "
             "Выполни следующие задачи: "
             "1) Дай глубокое и подробное описание целевой аудитории: возраст, пол, профессия, интересы, поведение, привычки. "
@@ -151,11 +152,8 @@ def generate_text(user_id, mode):
             "   - Повседневные занятия "
             "   - Цитата персоны. "
             "Персонажи должны быть разными, реалистичными, основанными на ЦА и теме. "
-            "6) Предложи план действий для SMM-специалиста: как превратить аудиторию в клиентов через соцсети. "
-            "   - Шаги: привлечение (с примерами постов/рекламы), прогрев (с примерами контента), закрытие (как продавать). "
-            "   - Инструменты: конкретные сервисы. "
-            "   - Метрики: реалистичные цифры (лиды, конверсия, доход). "
-            "7) Заверши призывом к действию. Пиши только текст стратегии."
+            "6) После каждого персонажа добавь подзаголовок 'Как делать!' и предложи план действий, как мне, как SMM-специалисту, превратить эту персону в клиента бизнеса. Какие способы взаимодействия я могу использовать? Как продавать через соцсети? Распиши по шагам действия, чтобы продать сегменту этой персоны продукт парикмахерских услуг. "
+            "7) Заверши общим призывом к действию для всей стратегии. Пиши только текст стратегии."
         ).format(topic=topic, client=client, channels=channels, result=result, context=BOOK_CONTEXT[:1000])
     elif mode == "image":
         full_prompt = (
@@ -181,7 +179,7 @@ def generate_text(user_id, mode):
     payload = {
         "model": "meta-llama/Llama-3-8b-chat-hf",
         "messages": [{"role": "user", "content": full_prompt}],
-        "max_tokens": 1500,
+        "max_tokens": 2000,  # Увеличил для подробных планов
         "temperature": 0.7
     }
     for attempt in range(3):
@@ -192,6 +190,15 @@ def generate_text(user_id, mode):
                 raw_text = response.json()["choices"][0]["message"]["content"].strip()
                 logger.info(f"Получен текст от Together AI: {raw_text}")
                 corrected_text = correct_text(raw_text)
+                # Дополнительная проверка на иностранные слова
+                if re.search(r'[a-zA-Z]', corrected_text):
+                    logger.warning("Обнаружены иностранные символы, заменяю...")
+                    replacements = {
+                        'often': 'часто', 'juggle': 'сочетать', 'trend': 'тренд', 'confidence': 'уверенность',
+                        'budget': 'бюджет', 'products': 'продукты', 'they': 'они', 'know': 'знают'
+                    }
+                    for eng, rus in replacements.items():
+                        corrected_text = corrected_text.replace(eng, rus)
                 return corrected_text
             else:
                 logger.error(f"Ошибка API: {response.status_code} - {response.text}")
@@ -291,29 +298,6 @@ async def recognize_voice(file_path):
             logger.error(f"Ошибка сервиса распознавания: {e}")
             os.remove("temp.wav")
             return "Ошибка сервиса распознавания. Попробуй ещё раз!"
-
-# Разбиение текста на части для Telegram
-async def send_long_text(chat_id, text, hashtags, context):
-    max_length = 4096
-    if len(text) + len(hashtags) + 2 <= max_length:
-        await context.bot.send_message(chat_id=chat_id, text=f"{text}\n\n{hashtags}")
-    else:
-        parts = []
-        current_part = ""
-        for line in text.split("\n"):
-            if len(current_part) + len(line) + 1 <= max_length:
-                current_part += line + "\n"
-            else:
-                parts.append(current_part.strip())
-                current_part = line + "\n"
-        if current_part:
-            parts.append(current_part.strip())
-        
-        for i, part in enumerate(parts):
-            if i == len(parts) - 1:  # Последняя часть
-                await context.bot.send_message(chat_id=chat_id, text=f"{part}\n\n{hashtags}")
-            else:
-                await context.bot.send_message(chat_id=chat_id, text=part)
 
 # Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes, is_voice=False):
@@ -449,9 +433,8 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 mode = user_data[user_id]["mode"]
                 response = generate_text(user_id, mode)
                 hashtags = generate_hashtags(user_data[user_id]["topic"])
-                topic = user_data[user_id]["topic"]  # Используем topic из user_data
+                topic = user_data[user_id]["topic"]
                 try:
-                    # Создаём PDF из текста стратегии
                     pdf_file = create_pdf(response)
                     with open(pdf_file, 'rb') as f:
                         await context.bot.send_document(
@@ -464,7 +447,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                     logger.info(f"Стратегия успешно отправлена как PDF для user_id={user_id}")
                 except Exception as e:
                     logger.error(f"Ошибка отправки стратегии как PDF: {e}", exc_info=True)
-                    await send_long_text(update.message.chat_id, "Не удалось отправить стратегию как PDF. Вот текст:\n" + response, hashtags, context)
+                    await update.message.reply_text("Не удалось отправить стратегию как PDF. Попробуй ещё раз!")
                 logger.info(f"Стратегия сгенерирована для user_id={user_id}")
                 del user_data[user_id]
 
