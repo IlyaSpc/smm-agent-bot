@@ -104,34 +104,49 @@ def generate_ideas(topic):
 # Генерация текста через Together AI API
 def generate_text(user_id, mode):
     topic = user_data[user_id].get("topic", "не указано")
+    full_prompt = ""  # Инициализируем пустой промпт
     
     if mode in ["post", "story", "image"]:
-        goal = user_data[user_id].get("goal", "не указано")
-        main_idea = user_data[user_id].get("main_idea", "не указано")
-        facts = user_data[user_id].get("facts", "не указано")
-        pains = user_data[user_id].get("pains", "не указано")
+        goal = user_data[user_id].get("goal", "привлечение")
+        main_idea = user_data[user_id].get("main_idea", "показать пользу темы")
+        facts = user_data[user_id].get("facts", "основаны на реальных примерах")
+        pains = user_data[user_id].get("pains", "нехватка времени и информации")
         idea = user_data[user_id].get("idea", "не указано")
+
+        if mode == "post":
+            full_prompt = (
+                "Ты копирайтер с 10-летним опытом, работающий только на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
+                "Напиши пост на русском языке (10-12 предложений) по теме '{topic}' для социальных сетей, используя идею: {idea}. "
+                "Цель текста: {goal}. Главная мысль: {main_idea}. Факты: {facts}. Боли и потребности аудитории: {pains}. "
+                "Контекст из книг: '{context}'. "
+                "Пиши исключительно на русском языке, любые иностранные слова категорически запрещены — используй только русские эквиваленты (например, 'firsthand' — 'из первых рук', 'like' — 'например'). "
+                "Пример текста: 'Хотите больше клиентов? Узнайте, как простые шаги помогают вырасти!' "
+                "Стиль: дружелюбный, живой, разговорный, с эмоциями, краткий, ясный, без штампов, канцеляризмов, с фактами вместо общих фраз, добавь позитив и лёгкий юмор. "
+                "Структура: начни с цепляющего вопроса или факта (AIDA), раскрой проблему аудитории, предложи решение, закрой возражения, покажи выгоду через пример, заверши призывом к действию. Пиши только текст поста."
+            ).format(topic=topic, idea=idea, goal=goal, main_idea=main_idea, facts=facts, pains=pains, context=BOOK_CONTEXT[:1000])
+        elif mode == "story":
+            full_prompt = (
+                "Ты копирайтер с 10-летним опытом, работающий только на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
+                "Напиши сторителлинг на русском языке (6-8 предложений) по теме '{topic}' для социальных сетей, используя идею: {idea}. "
+                "Цель текста: {goal}. Главная мысль: {main_idea}. Факты: {facts}. Боли и потребности аудитории: {pains}. "
+                "Контекст из книг: '{context}'. "
+                "Пиши исключительно на русском языке, любые иностранные слова запрещены — используй русские эквиваленты (например, 'firsthand' — 'из первых рук'). "
+                "Стиль: живой, эмоциональный, с метафорами, краткий, ясный, разговорный, без штампов, с позитивом и лёгким юмором. "
+                "Структура: начни с истории, которая цепляет, расскажи, почему тебе можно доверять, опиши боль клиента, покажи, как решение меняет жизнь, заверши призывом к действию. Пиши только текст сторителлинга."
+            ).format(topic=topic, idea=idea, goal=goal, main_idea=main_idea, facts=facts, pains=pains, context=BOOK_CONTEXT[:1000])
+        elif mode == "image":
+            full_prompt = (
+                "Ты копирайтер с 10-летним опытом, работающий только на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
+                "Напиши описание изображения на русском языке (5-7 предложений) по теме '{topic}' для социальных сетей, используя идею: {idea}. "
+                "Цель текста: {goal}. Главная мысль: {main_idea}. Факты: {facts}. Боли и потребности аудитории: {pains}. "
+                "Контекст из книг: '{context}'. "
+                "Пиши исключительно на русском языке, любые иностранные слова запрещены — используй русские эквиваленты (например, 'firsthand' — 'из первых рук'). "
+                "Стиль: живой, эмоциональный, с визуальными образами, краткий, ясный, разговорный, без штампов, с позитивом. Опиши изображение, эмоции и связь с темой."
+            ).format(topic=topic, idea=idea, goal=goal, main_idea=main_idea, facts=facts, pains=pains, context=BOOK_CONTEXT[:1000])
     elif mode == "strategy":
         client = user_data[user_id].get("client", "не указано")
         channels = user_data[user_id].get("channels", "не указано")
         result = user_data[user_id].get("result", "не указано")
-    elif mode == "content_plan":
-        frequency = user_data[user_id].get("frequency", "не указано")
-        client = user_data[user_id].get("client", "не указано")
-        channels = user_data[user_id].get("channels", "не указано")
-
-    if mode == "post":
-        full_prompt = (
-            "Ты копирайтер с 10-летним опытом, работающий только на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
-            "Напиши пост на русском языке (10-12 предложений) по теме '{topic}' для социальных сетей, используя идею: {idea}. "
-            "Цель текста: {goal}. Главная мысль: {main_idea}. Факты: {facts}. Боли и потребности аудитории: {pains}. "
-            "Контекст из книг: '{context}'. "
-            "Пиши исключительно на русском языке, любые иностранные слова категорически запрещены — используй только русские эквиваленты (например, 'firsthand' — 'из первых рук', 'like' — 'например'). "
-            "Пример текста: 'Хотите больше клиентов? Узнайте, как простые шаги помогают вырасти!' "
-            "Стиль: дружелюбный, живой, разговорный, с эмоциями, краткий, ясный, без штампов, канцеляризмов, с фактами вместо общих фраз, добавь позитив и лёгкий юмор. "
-            "Структура: начни с цепляющего вопроса или факта (AIDA), раскрой проблему аудитории, предложи решение, закрой возражения, покажи выгоду через пример, заверши призывом к действию. Пиши только текст поста."
-        ).format(topic=topic, idea=idea, goal=goal, main_idea=main_idea, facts=facts, pains=pains, context=BOOK_CONTEXT[:1000])
-    elif mode == "strategy":
         full_prompt = (
             "Ты профессиональный маркетолог и SMM-специалист с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
             "Разработай стратегию клиентогенерации на русском языке по теме '{topic}'. "
@@ -158,6 +173,9 @@ def generate_text(user_id, mode):
             "7) Заверши общим призывом к действию для всей стратегии, добавь пример метрик: количество лидов, конверсия, доход (например, 1000 лидов, 20% конверсия, 50000 рублей дохода). Пиши только текст стратегии, включи все 5 персонажей полностью."
         ).format(topic=topic, client=client, channels=channels, result=result, context=BOOK_CONTEXT[:1000])
     elif mode == "content_plan":
+        frequency = user_data[user_id].get("frequency", "не указано")
+        client = user_data[user_id].get("client", "не указано")
+        channels = user_data[user_id].get("channels", "не указано")
         full_prompt = (
             "Ты SMM-специалист с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
             "Составь контент-план на русском языке для продвижения '{topic}' в социальных сетях с 27 февраля 2025 года. "
@@ -230,7 +248,9 @@ def generate_hashtags(topic):
         "маркетолог": ["#маркетинг", "#продвижение", "#реклама", "#бизнес", "#лидерство", "#коммуникация"],
         "спортклуб": ["#фитнес", "#спорт", "#здоровье", "#тренировки", "#мотивация", "#сила"],
         "маникюра": ["#маникюр", "#красота", "#уход", "#ногти", "#стиль", "#здоровье"],
-        "хоккей": ["#хоккей", "#спорт", "#игра", "#команда", "#мотивация", "#сила"]
+        "хоккей": ["#хоккей", "#спорт", "#игра", "#команда", "#мотивация", "#сила"],
+        "зиму": ["#зима", "#холод", "#снег", "#уют", "#природа", "#отдых"],
+        "барбершопа": ["#барбершоп", "#стрижка", "#уход", "#стиль", "#мужчины", "#красота"]
     }
     relevant_tags = []
     for key in thematic_hashtags:
@@ -315,7 +335,19 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             logger.info("Некорректный запрос")
             await update.message.reply_text("Укажи тип запроса: 'пост про...', 'стори про...', 'стратегия про...', 'изображение про...', 'аналитика для...'.")
     else:
-        if user_data[user_id]["mode"] == "strategy" or user_data[user_id]["mode"] == "content_plan":
+        if user_data[user_id]["mode"] in ["post", "story", "image"] and user_data[user_id]["stage"] == "ideas":
+            if message.isdigit() and 1 <= int(message) <= 3:
+                idea_num = int(message)
+                ideas = generate_ideas(user_data[user_id]["topic"])
+                selected_idea = ideas[idea_num - 1].split(". ")[1]
+                user_data[user_id]["idea"] = selected_idea
+            else:
+                user_data[user_id]["idea"] = message
+            response = generate_text(user_id, user_data[user_id]["mode"])
+            hashtags = generate_hashtags(user_data[user_id]["topic"])
+            await update.message.reply_text(f"{response}\n\n{hashtags}")
+            del user_data[user_id]
+        elif user_data[user_id]["mode"] == "strategy" or user_data[user_id]["mode"] == "content_plan":
             if user_data[user_id]["stage"] == "client":
                 logger.info("Этап client")
                 user_data[user_id]["client"] = message
@@ -382,30 +414,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 except Exception as e:
                     logger.error(f"Ошибка отправки контент-плана как PDF: {e}", exc_info=True)
                     await update.message.reply_text("Не удалось отправить контент-план как PDF. Попробуй ещё раз!")
-                del user_data[user_id]
-        elif user_data[user_id]["stage"] == "ideas":
-            if message.isdigit() and 1 <= int(message) <= 3:
-                idea_num = int(message)
-                ideas = generate_ideas(user_data[user_id]["topic"])
-                selected_idea = ideas[idea_num - 1].split(". ")[1]
-                user_data[user_id]["idea"] = selected_idea
-                user_data[user_id]["goal"] = "привлечение"
-                user_data[user_id]["main_idea"] = "показать пользу темы"
-                user_data[user_id]["facts"] = "основаны на реальных примерах"
-                user_data[user_id]["pains"] = "нехватка времени и информации"
-                response = generate_text(user_id, user_data[user_id]["mode"])
-                hashtags = generate_hashtags(user_data[user_id]["topic"])
-                await update.message.reply_text(f"{response}\n\n{hashtags}")
-                del user_data[user_id]
-            else:
-                user_data[user_id]["idea"] = message
-                user_data[user_id]["goal"] = "привлечение"
-                user_data[user_id]["main_idea"] = "показать пользу темы"
-                user_data[user_id]["facts"] = "основаны на реальных примерах"
-                user_data[user_id]["pains"] = "нехватка времени и информации"
-                response = generate_text(user_id, user_data[user_id]["mode"])
-                hashtags = generate_hashtags(user_data[user_id]["topic"])
-                await update.message.reply_text(f"{response}\n\n{hashtags}")
                 del user_data[user_id]
 
 # Обработка текстовых сообщений
