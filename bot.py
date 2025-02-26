@@ -10,6 +10,7 @@ from pydub import AudioSegment
 from time import sleep
 from fpdf import FPDF
 import asyncio
+import random
 
 # Настройка логирования
 logging.basicConfig(
@@ -116,13 +117,27 @@ def create_pdf(text, filename="strategy.pdf"):
         logger.error(f"Ошибка при создании PDF: {e}", exc_info=True)
         raise
 
-# Генерация идей для постов, сторис и т.д.
+# Генерация разнообразных идей для постов, сторис и т.д.
 def generate_ideas(topic):
-    return [
-        f"1. Расскажи, как {topic} помогает решать повседневные проблемы.",
-        f"2. Поделись фактом о {topic}, который удивит твоих подписчиков.",
-        f"3. Покажи, как {topic} меняет жизнь к лучшему на примере."
+    idea_pool = [
+        f"Расскажи, как {topic} помогает решать повседневные проблемы.",
+        f"Поделись фактом о {topic}, который удивит твоих подписчиков.",
+        f"Покажи, как {topic} меняет жизнь к лучшему на примере.",
+        f"Опиши, почему {topic} — это то, что нужно каждому прямо сейчас.",
+        f"Сравни {topic} с чем-то неожиданным, чтобы зацепить внимание.",
+        f"Дай совет, как использовать {topic} для улучшения дня.",
+        f"Расскажи историю о том, как {topic} спас ситуацию.",
+        f"Объясни, как {topic} решает проблему, о которой мало кто задумывается.",
+        f"Покажи, как {topic} вдохновляет на новые свершения.",
+        f"Поделись мифом о {topic} и развей его правдой.",
+        f"Опиши эмоции, которые вызывает {topic} у людей.",
+        f"Расскажи, как {topic} может стать частью утренней рутины.",
+        f"Покажи связь между {topic} и чем-то актуальным сегодня.",
+        f"Дай три причины, почему {topic} стоит попробовать уже сегодня.",
+        f"Опиши, как {topic} помогает справляться с хаосом жизни."
     ]
+    selected_ideas = random.sample(idea_pool, 3)  # Выбираем 3 случайные уникальные идеи
+    return [f"{i+1}. {idea}" for i, idea in enumerate(selected_ideas)]
 
 # Генерация текста через Together AI API
 def generate_text(user_id, mode):
@@ -350,8 +365,8 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         await update.message.reply_text("О чём написать сторис? (Например, 'утро')", reply_markup=reply_markup)
         return
     elif message == "аналитика":
-        user_data[user_id] = {"mode": "analytics", "stage": "reach"}
-        await update.message.reply_text("Какой охват у вашего контента? (Например, 500 просмотров)", reply_markup=reply_markup)
+        user_data[user_id] = {"mode": "analytics", "stage": "topic"}
+        await update.message.reply_text("Для чего аналитика? (Например, 'посты про кофе')", reply_markup=reply_markup)
         return
     elif message == "стратегия/контент-план":
         user_data[user_id] = {"mode": "strategy", "stage": "client"}
@@ -367,11 +382,19 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         mode = user_data[user_id]["mode"]
         stage = user_data[user_id]["stage"]
 
-        if mode in ["post", "story", "image"] and stage == "topic":
+        if mode in ["post", "story", "image", "hashtags", "analytics"] and stage == "topic":
             user_data[user_id]["topic"] = message
-            ideas = generate_ideas(message)
-            user_data[user_id]["stage"] = "ideas"
-            await update.message.reply_text(f"Вот идеи для '{message}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!", reply_markup=reply_markup)
+            if mode == "hashtags":
+                response = generate_text(user_id, "hashtags")
+                await update.message.reply_text(response, reply_markup=reply_markup)
+                del user_data[user_id]
+            elif mode == "analytics":
+                user_data[user_id]["stage"] = "reach"
+                await update.message.reply_text("Какой охват у вашего контента? (Например, 500 просмотров)", reply_markup=reply_markup)
+            else:
+                ideas = generate_ideas(message)
+                user_data[user_id]["stage"] = "ideas"
+                await update.message.reply_text(f"Вот идеи для '{message}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!", reply_markup=reply_markup)
         elif mode in ["post", "story", "image"] and stage == "ideas":
             if message.isdigit() and 1 <= int(message) <= 3:
                 idea_num = int(message)
@@ -383,11 +406,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             response = generate_text(user_id, mode)
             hashtags = generate_hashtags(user_data[user_id]["topic"])
             await update.message.reply_text(f"{response}\n\n{hashtags}", reply_markup=reply_markup)
-            del user_data[user_id]
-        elif mode == "hashtags" and stage == "topic":
-            user_data[user_id]["topic"] = message
-            response = generate_text(user_id, "hashtags")
-            await update.message.reply_text(response, reply_markup=reply_markup)
             del user_data[user_id]
         elif mode == "strategy" and stage == "client":
             logger.info("Этап client")
