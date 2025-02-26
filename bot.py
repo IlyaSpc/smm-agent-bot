@@ -93,6 +93,14 @@ def create_pdf(text, filename="strategy.pdf"):
         logger.error(f"Ошибка при создании PDF: {e}", exc_info=True)
         raise
 
+# Генерация идей для постов, сторис и т.д.
+def generate_ideas(topic):
+    return [
+        f"1. Расскажи, как {topic} помогает решать повседневные проблемы.",
+        f"2. Поделись фактом о {topic}, который удивит твоих подписчиков.",
+        f"3. Покажи, как {topic} меняет жизнь к лучшему на примере."
+    ]
+
 # Генерация текста через Together AI API
 def generate_text(user_id, mode):
     topic = user_data[user_id].get("topic", "не указано")
@@ -201,6 +209,7 @@ def generate_text(user_id, mode):
                     }
                     for eng, rus in replacements.items():
                         corrected_text = corrected_text.replace(eng, rus)
+                corrected_text = correct_text(corrected_text)  # Двойная проверка для опечаток
                 return corrected_text
             else:
                 logger.error(f"Ошибка API: {response.status_code} - {response.text}")
@@ -219,7 +228,9 @@ def generate_hashtags(topic):
     thematic_hashtags = {
         "психолог": ["#психология", "#саморазвитие", "#здоровье", "#эмоции", "#мотивация", "#уверенность"],
         "маркетолог": ["#маркетинг", "#продвижение", "#реклама", "#бизнес", "#лидерство", "#коммуникация"],
-        "спортклуб": ["#фитнес", "#спорт", "#здоровье", "#тренировки", "#мотивация", "#сила"]
+        "спортклуб": ["#фитнес", "#спорт", "#здоровье", "#тренировки", "#мотивация", "#сила"],
+        "маникюра": ["#маникюр", "#красота", "#уход", "#ногти", "#стиль", "#здоровье"],
+        "хоккей": ["#хоккей", "#спорт", "#игра", "#команда", "#мотивация", "#сила"]
     }
     relevant_tags = []
     for key in thematic_hashtags:
@@ -256,7 +267,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         return
 
     # Проверяем, новый ли это запрос
-    new_request = any(x in message for x in ["пост про", "напиши пост про", "пост для",
+    new_request = any(x in message for x in ["пост про", "напиши пост про", "пост для", "напиши текст про",
                                             "стори про", "напиши стори", "сторителлинг", "сторис", "стори для",
                                             "стратегия про", "напиши стратегию", "стратегия для",
                                             "изображение про", "изображение для",
@@ -269,9 +280,9 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         
         recognized = False
         topic = None
-        if any(x in message for x in ["пост про", "напиши пост про", "пост для"]):
+        if any(x in message for x in ["пост про", "напиши пост про", "пост для", "напиши текст про"]):
             user_data[user_id] = {"mode": "post", "stage": "ideas"}
-            topic = re.sub(r"(пост про|напиши пост про|пост для)", "", message).strip()
+            topic = re.sub(r"(пост про|напиши пост про|пост для|напиши текст про)", "", message).strip()
             recognized = True
         elif any(x in message for x in ["стори про", "напиши стори", "сторителлинг", "сторис", "стори для"]):
             user_data[user_id] = {"mode": "story", "stage": "ideas"}
@@ -371,6 +382,30 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 except Exception as e:
                     logger.error(f"Ошибка отправки контент-плана как PDF: {e}", exc_info=True)
                     await update.message.reply_text("Не удалось отправить контент-план как PDF. Попробуй ещё раз!")
+                del user_data[user_id]
+        elif user_data[user_id]["stage"] == "ideas":
+            if message.isdigit() and 1 <= int(message) <= 3:
+                idea_num = int(message)
+                ideas = generate_ideas(user_data[user_id]["topic"])
+                selected_idea = ideas[idea_num - 1].split(". ")[1]
+                user_data[user_id]["idea"] = selected_idea
+                user_data[user_id]["goal"] = "привлечение"
+                user_data[user_id]["main_idea"] = "показать пользу темы"
+                user_data[user_id]["facts"] = "основаны на реальных примерах"
+                user_data[user_id]["pains"] = "нехватка времени и информации"
+                response = generate_text(user_id, user_data[user_id]["mode"])
+                hashtags = generate_hashtags(user_data[user_id]["topic"])
+                await update.message.reply_text(f"{response}\n\n{hashtags}")
+                del user_data[user_id]
+            else:
+                user_data[user_id]["idea"] = message
+                user_data[user_id]["goal"] = "привлечение"
+                user_data[user_id]["main_idea"] = "показать пользу темы"
+                user_data[user_id]["facts"] = "основаны на реальных примерах"
+                user_data[user_id]["pains"] = "нехватка времени и информации"
+                response = generate_text(user_id, user_data[user_id]["mode"])
+                hashtags = generate_hashtags(user_data[user_id]["topic"])
+                await update.message.reply_text(f"{response}\n\n{hashtags}")
                 del user_data[user_id]
 
 # Обработка текстовых сообщений
