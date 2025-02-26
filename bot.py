@@ -111,9 +111,6 @@ def generate_text(user_id, mode):
         frequency = user_data[user_id].get("frequency", "не указано")
         client = user_data[user_id].get("client", "не указано")
         channels = user_data[user_id].get("channels", "не указано")
-    else:  # mode == "analytics"
-        reach = user_data[user_id].get("reach", "не указано")
-        engagement = user_data[user_id].get("engagement", "не указано")
 
     if mode == "post":
         full_prompt = (
@@ -155,7 +152,7 @@ def generate_text(user_id, mode):
     elif mode == "content_plan":
         full_prompt = (
             "Ты SMM-специалист с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
-            "Составь контент-план на русском языке для продвижения услуг психолога в социальных сетях с 27 февраля 2025 года. "
+            "Составь контент-план на русском языке для продвижения '{topic}' в социальных сетях с 27 февраля 2025 года. "
             "Целевая аудитория: {client}. Каналы: {channels}. Частота публикаций: {frequency}. "
             "Контекст из книг: '{context}'. "
             "Пиши исключительно на русском языке, категорически запрещено использовать любые иностранные слова — заменяй их русскими эквивалентами (например, 'post' — 'пост', 'reels' — 'короткие видео', 'confidence' — 'уверенность', 'semaine' — 'неделя', 'build' — 'развить', 'week' — 'неделя', 'guidance' — 'поддержка', 'cope' — 'справляться', 'relationship' — 'отношения', 'gratitude' — 'благодарность'). "
@@ -163,10 +160,10 @@ def generate_text(user_id, mode):
             "Составь план на 2 недели, укажи: "
             "1) Дату и время публикации для каждого поста или видео, начиная с 27 февраля 2025 года. "
             "2) Тип контента (пост, короткое видео). "
-            "3) Краткое описание (2-3 предложения) с идеей контента, связанной с услугами психолога. "
+            "3) Краткое описание (2-3 предложения) с идеей контента, связанной с темой '{topic}'. "
             "4) Цель (привлечение, прогрев, продажа). "
             "Если частота публикаций — '2 поста и 3 видео в неделю', создай ровно 4 поста и 6 коротких видео за 2 недели, распредели контент равномерно, используй только посты и короткие видео. Пиши только текст контент-плана."
-        ).format(client=client, channels=channels, frequency=frequency, context=BOOK_CONTEXT[:1000])
+        ).format(topic=topic, client=client, channels=channels, frequency=frequency, context=BOOK_CONTEXT[:1000])
 
     logger.info(f"Отправка запроса к Together AI для {mode}")
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
@@ -174,7 +171,7 @@ def generate_text(user_id, mode):
         "model": "meta-llama/Llama-3-8b-chat-hf",
         "messages": [{"role": "user", "content": full_prompt}],
         "max_tokens": 3000,
-        "temperature": 0.5  # Уменьшено для большей точности
+        "temperature": 0.5
     }
     for attempt in range(3):
         try:
@@ -336,7 +333,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                         )
                     os.remove(pdf_file)
                     logger.info(f"Стратегия успешно отправлена как PDF для user_id={user_id}")
-                    await asyncio.sleep(20)  # 20 секунд
+                    await asyncio.sleep(20)
                     await context.bot.send_message(
                         chat_id=update.message.chat_id,
                         text="Хотите контент-план по этой стратегии? (Да/Нет)"
