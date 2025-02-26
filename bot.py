@@ -24,7 +24,8 @@ TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
 LANGUAGE_TOOL_URL = "https://languagetool.org/api/v2/check"
 PORT = int(os.environ.get("PORT", 8080))
 
-app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+# Увеличиваем таймаут для Telegram
+app = Application.builder().token(TELEGRAM_BOT_TOKEN).read_timeout(20).write_timeout(20).build()
 
 # Контекст из книг
 BOOK_CONTEXT = """
@@ -54,7 +55,7 @@ def correct_text(text):
         "language": "ru"
     }
     try:
-        response = requests.post(LANGUAGE_TOOL_URL, data=payload, timeout=10)
+        response = requests.post(LANGUAGE_TOOL_URL, data=payload, timeout=5)  # Уменьшаем таймаут до 5 секунд
         if response.status_code == 200:
             data = response.json()
             corrected_text = text
@@ -68,23 +69,28 @@ def correct_text(text):
             return corrected_text
         else:
             logger.error(f"Ошибка LanguageTool API: {response.status_code} - {response.text}")
-            return text
-    except requests.RequestException as e:
+            return text  # Возвращаем исходный текст при ошибке
+    except (requests.RequestException, TimeoutError) as e:
         logger.error(f"Ошибка запроса к LanguageTool API: {e}")
-        return text
+        return text  # Fallback на исходный текст
 
 # Создание PDF из текста
 def create_pdf(text, filename="strategy.pdf"):
-    if not os.path.exists("DejaVuSans.ttf"):
-        logger.error("Шрифт DejaVuSans.ttf не найден!")
-        raise FileNotFoundError("Шрифт DejaVuSans.ttf не найден!")
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-    pdf.set_font("DejaVu", size=12)
-    pdf.multi_cell(0, 10, text)
-    pdf.output(filename)
-    return filename
+    try:
+        if not os.path.exists("DejaVuSans.ttf"):
+            logger.error("Шрифт DejaVuSans.ttf не найден!")
+            raise FileNotFoundError("Шрифт DejaVuSans.ttf не найден!")
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+        pdf.set_font("DejaVu", size=12)
+        pdf.multi_cell(0, 10, text)
+        pdf.output(filename)
+        logger.info(f"PDF успешно создан: {filename}")
+        return filename
+    except Exception as e:
+        logger.error(f"Ошибка при создании PDF: {e}", exc_info=True)
+        raise
 
 # Генерация текста через Together AI API
 def generate_text(user_id, mode):
@@ -121,7 +127,7 @@ def generate_text(user_id, mode):
             "Цель текста: {goal}. Главная мысль: {main_idea}. Факты: {facts}. Боли и потребности аудитории: {pains}. "
             "Контекст из книг: '{context}'. "
             "Пиши ТОЛЬКО на русском языке, любые иностранные слова запрещены — используй русские эквиваленты (например, 'firsthand' — 'на собственном опыте', 'help us grow' — 'помогают расти', 'family dinner' — 'семейный ужин'). "
-            "Стиль: живой, эмоциональный, с метафорами, краткий, ясный, разговорный, без штампов, с позитивом и лёгким юмором. "
+            "Стиль: живой, эмоциональный, с метафорами, краткий, ясный, разговорный, без штампов, с позитивом и лёгкий юмор. "
             "Структура: 1) Начни с истории, которая цепляет (пример из жизни, проблема клиента, факт), 2) Расскажи, почему тебе можно доверять (личная история или миссия), 3) Опиши боль клиента, 4) Покажи, как решение меняет жизнь, 5) Заверши призывом к действию. Пиши только текст сторителлинга."
         ).format(topic=topic, idea=idea, goal=goal, main_idea=main_idea, facts=facts, pains=pains, context=BOOK_CONTEXT[:1000])
     elif mode == "strategy":
@@ -435,7 +441,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                     os.remove(pdf_file)  # Удаляем временный файл
                     logger.info(f"Стратегия успешно отправлена как PDF для user_id={user_id}")
                 except Exception as e:
-                    logger.error(f"Ошибка отправки стратегии как PDF: {e}")
+                    logger.error(f"Ошибка отправки стратегии как PDF: {e}", exc_info=True)
                     await update.message.reply_text("Не удалось отправить стратегию как PDF. Вот текст (сокращённый):\n" + response[:4000] + "\n\n" + hashtags)
                 logger.info(f"Стратегия сгенерирована для user_id={user_id}")
                 del user_data[user_id]
