@@ -25,8 +25,8 @@ TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
 LANGUAGE_TOOL_URL = "https://languagetool.org/api/v2/check"
 PORT = int(os.environ.get("PORT", 8080))
 
-# Увеличиваем таймаут для Telegram
-app = Application.builder().token(TELEGRAM_BOT_TOKEN).read_timeout(20).write_timeout(20).build()
+# Увеличиваем таймаут для Telegram до 30 секунд
+app = Application.builder().token(TELEGRAM_BOT_TOKEN).read_timeout(30).write_timeout(30).build()
 
 # Контекст из книг
 BOOK_CONTEXT = """
@@ -368,7 +368,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
 
 # Обработка текстовых сообщений
 async def handle_text(update: Update, context: ContextTypes):
-    logger.info("Вызов handle_text")
+    logger.info(f"Обработка текстового сообщения от {update.message.from_user.id}: {update.message.text}")
     await handle_message(update, context, is_voice=False)
 
 # Обработка голосовых сообщений
@@ -383,21 +383,28 @@ async def handle_voice(update: Update, context: ContextTypes):
 
 # Команда /start
 async def start(update: Update, context: ContextTypes):
-    logger.info("Команда /start")
+    logger.info(f"Получена команда /start от user_id={update.message.from_user.id}")
     await update.message.reply_text(
         "Привет! Я твой SMM-помощник. Могу писать посты, сторис, стратегии и контент-планы для Instagram, ВКонтакте и Telegram.\n"
         "Примеры запросов: 'пост про кофе', 'стори для города', 'стратегия для маркетолога'.\n"
         "Отвечай на мои вопросы, чтобы получить сильный текст или стратегию!\n"
-        "Задержка ответа — от 5 до 20 секунд, пока я думаю над твоим запросом. 😊"
+        "Задержка ответа — от 5 до 20 секунд, пока я думаю над твоим запросом. Если я долго не отвечаю, подожди чуть-чуть — возможно, я просыпаюсь! 😊"
     )
 
 # Webhook handler
 async def webhook(request):
     logger.info("Получен запрос на webhook")
-    update = Update.de_json(await request.json(), app.bot)
-    if update:
-        await app.process_update(update)
-    return web.Response(text="OK")
+    try:
+        update = Update.de_json(await request.json(), app.bot)
+        if update:
+            logger.info(f"Получен update: {update}")
+            await app.process_update(update)
+        else:
+            logger.warning("Update пустой")
+        return web.Response(text="OK")
+    except Exception as e:
+        logger.error(f"Ошибка в webhook: {e}", exc_info=True)
+        return web.Response(text="ERROR", status=500)
 
 # Настройка и запуск
 async def init_app():
@@ -405,8 +412,17 @@ async def init_app():
     await app.initialize()
     hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "localhost")
     webhook_url = f"https://{hostname}/webhook"
-    await app.bot.set_webhook(url=webhook_url)
-    logger.info(f"Webhook установлен: {webhook_url}")
+    try:
+        current_webhook = await app.bot.get_webhook_info()
+        logger.info(f"Текущий вебхук: {current_webhook}")
+        if current_webhook.url != webhook_url:
+            await app.bot.set_webhook(url=webhook_url)
+            logger.info(f"Webhook установлен: {webhook_url}")
+        else:
+            logger.info("Webhook уже установлен корректно")
+    except Exception as e:
+        logger.error(f"Ошибка при настройке вебхука: {e}", exc_info=True)
+        raise
 
 async def main():
     await init_app()
