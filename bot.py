@@ -18,7 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Настройки API
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAE9_zzdx6_9DocQQbEqPPYsHfzG7gZ-P-w")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAHD9S-LbNMLdHPYtdFZRwg_2JBu_tdd0ng") #поменял токен
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "e176b9501183206d063aab78a4abfe82727a24004a07f617c9e06472e2630118")
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
 LANGUAGE_TOOL_URL = "https://languagetool.org/api/v2/check"
@@ -55,7 +55,7 @@ def correct_text(text):
         "language": "ru"
     }
     try:
-        response = requests.post(LANGUAGE_TOOL_URL, data=payload, timeout=5)  # Уменьшаем таймаут до 5 секунд
+        response = requests.post(LANGUAGE_TOOL_URL, data=payload, timeout=5)
         if response.status_code == 200:
             data = response.json()
             corrected_text = text
@@ -69,10 +69,10 @@ def correct_text(text):
             return corrected_text
         else:
             logger.error(f"Ошибка LanguageTool API: {response.status_code} - {response.text}")
-            return text  # Возвращаем исходный текст при ошибке
+            return text
     except (requests.RequestException, TimeoutError) as e:
         logger.error(f"Ошибка запроса к LanguageTool API: {e}")
-        return text  # Fallback на исходный текст
+        return text
 
 # Создание PDF из текста
 def create_pdf(text, filename="strategy.pdf"):
@@ -292,6 +292,29 @@ async def recognize_voice(file_path):
             os.remove("temp.wav")
             return "Ошибка сервиса распознавания. Попробуй ещё раз!"
 
+# Разбиение текста на части для Telegram
+async def send_long_text(chat_id, text, hashtags, context):
+    max_length = 4096
+    if len(text) + len(hashtags) + 2 <= max_length:
+        await context.bot.send_message(chat_id=chat_id, text=f"{text}\n\n{hashtags}")
+    else:
+        parts = []
+        current_part = ""
+        for line in text.split("\n"):
+            if len(current_part) + len(line) + 1 <= max_length:
+                current_part += line + "\n"
+            else:
+                parts.append(current_part.strip())
+                current_part = line + "\n"
+        if current_part:
+            parts.append(current_part.strip())
+        
+        for i, part in enumerate(parts):
+            if i == len(parts) - 1:  # Последняя часть
+                await context.bot.send_message(chat_id=chat_id, text=f"{part}\n\n{hashtags}")
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=part)
+
 # Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     user_id = update.message.from_user.id
@@ -325,6 +348,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             del user_data[user_id]  # Очищаем старые данные для нового запроса
         
         recognized = False
+        topic = None
         if any(x in message for x in ["пост про", "напиши пост про", "пост для"]):
             user_data[user_id] = {"mode": "post", "stage": "ideas"}
             topic = re.sub(r"(пост про|напиши пост про|пост для)", "", message).strip()
@@ -360,10 +384,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             logger.info("Некорректный запрос")
             await update.message.reply_text("Укажи тип запроса: 'пост про...', 'стори про...', 'стратегия про...', 'изображение про...', 'аналитика для...'.")
     else:
-        current_topic = user_data[user_id]["topic"]
-        if current_topic in message and user_data[user_id]["mode"] != "strategy" and user_data[user_id]["stage"] != "ideas":
-            logger.info(f"Продолжаем текущий запрос с темой: {current_topic}")
-        elif user_data[user_id]["mode"] == "analytics":
+        if user_data[user_id]["mode"] == "analytics":
             if user_data[user_id]["stage"] == "reach":
                 logger.info("Этап reach")
                 user_data[user_id]["reach"] = message
@@ -428,6 +449,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 mode = user_data[user_id]["mode"]
                 response = generate_text(user_id, mode)
                 hashtags = generate_hashtags(user_data[user_id]["topic"])
+                topic = user_data[user_id]["topic"]  # Используем topic из user_data
                 try:
                     # Создаём PDF из текста стратегии
                     pdf_file = create_pdf(response)
@@ -438,11 +460,11 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                             filename=f"Стратегия_{topic}.pdf",
                             caption=f"Вот твоя стратегия в PDF!\n\n{hashtags}"
                         )
-                    os.remove(pdf_file)  # Удаляем временный файл
+                    os.remove(pdf_file)
                     logger.info(f"Стратегия успешно отправлена как PDF для user_id={user_id}")
                 except Exception as e:
                     logger.error(f"Ошибка отправки стратегии как PDF: {e}", exc_info=True)
-                    await update.message.reply_text("Не удалось отправить стратегию как PDF. Вот текст (сокращённый):\n" + response[:4000] + "\n\n" + hashtags)
+                    await send_long_text(update.message.chat_id, "Не удалось отправить стратегию как PDF. Вот текст:\n" + response, hashtags, context)
                 logger.info(f"Стратегия сгенерирована для user_id={user_id}")
                 del user_data[user_id]
 
