@@ -141,14 +141,14 @@ def generate_text(user_id, mode):
             "Разработай стратегию клиентогенерации на русском языке по теме '{topic}'. "
             "Целевая аудитория: {client}. Каналы привлечения: {channels}. Главный результат: {result}. "
             "Контекст из книг: '{context}'. "
-            "Пиши ТОЛЬКО на русском языке, строго запрещено использовать любые иностранные слова — заменяй их русскими эквивалентами (например, 'firsthand' — 'на собственном опыте', 'often' — 'часто', 'juggle' — 'сочетать', 'trend' — 'тренд', 'confidence' — 'уверенность', 'budget' — 'бюджет', 'products' — 'продукты'). "
+            "Пиши ТОЛЬКО на русском языке, категорически запрещено использовать любые иностранные слова — заменяй их русскими эквивалентами (например, 'firsthand' — 'из первых рук', 'often' — 'часто', 'juggle' — 'сочетать', 'trend' — 'тренд', 'confidence' — 'уверенность', 'budget' — 'бюджет', 'products' — 'продукты'). "
             "Если в тексте появятся иностранные слова, замени их на русские перед возвратом результата. "
             "Стиль: конкретный, пошаговый, дружелюбный, с примерами, без штампов, с фактами. "
             "Выполни следующие задачи: "
             "1) Дай глубокое и подробное описание целевой аудитории: возраст, пол, профессия, интересы, поведение, привычки. "
             "2) Перечисли 'точки боли' аудитории в формате списка (5-7 пунктов). "
             "3) Перечисли желания аудитории в формате списка (5-7 пунктов). "
-            "4) Опиши момент покупки: эмоции, желания, барьеры в этот момент, добавь больше деталей и эмоций. "
+            "4) Опиши момент покупки: эмоции, желания, барьеры в этот момент, добавь больше деталей и эмоций (например, страх потратить деньги впустую или радость от удачной стрижки). "
             "5) Создай 5 реалистичных пользовательских персонажей, представляющих ЦА. Для каждого укажи: "
             "   - Имя "
             "   - Демография (возраст, пол, род занятий, местоположение) "
@@ -157,22 +157,22 @@ def generate_text(user_id, mode):
             "   - Повседневные занятия "
             "   - Цитата персоны. "
             "Персонажи должны быть разными, реалистичными, основанными на ЦА и теме. "
-            "6) После каждого персонажа добавь подзаголовок 'Как делать!' и предложи уникальный план действий, как мне, как SMM-специалисту, превратить эту персону в клиента бизнеса. Какие способы взаимодействия я могу использовать? Как продавать через соцсети? Распиши по шагам (3-5 шагов) действия, чтобы продать сегменту этой персоны продукт парикмахерских услуг, учитывая её профессию и боли. Планы должны отличаться для каждой персоны. "
+            "6) После каждого персонажа добавь подзаголовок 'Как делать!' и предложи уникальный план действий, как мне, как SMM-специалисту, превратить эту персону в клиента бизнеса. Какие способы взаимодействия я могу использовать? Как продавать через соцсети? Распиши по шагам (3-5 шагов) действия, чтобы продать сегменту этой персоны продукт парикмахерских услуг, учитывая её профессию и боли. Планы должны отличаться для каждой персоны, используй разные форматы (посты, короткие видео, сторис) и соцсети (Instagram, ВКонтакте, Telegram). "
             "7) Заверши общим призывом к действию для всей стратегии, добавь пример метрик: количество лидов, конверсия, доход (например, 1000 лидов, 20% конверсия, 50000 рублей дохода). Пиши только текст стратегии."
         ).format(topic=topic, client=client, channels=channels, result=result, context=BOOK_CONTEXT[:1000])
     elif mode == "content_plan":
         full_prompt = (
             "Ты SMM-специалист с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
-            "Составь контент-план на русском языке для продвижения парикмахерских услуг в социальных сетях. "
+            "Составь контент-план на русском языке для продвижения парикмахерских услуг в социальных сетях с 27 февраля 2025 года. "
             "Целевая аудитория: {client}. Каналы: {channels}. Частота публикаций: {frequency}. "
             "Контекст из книг: '{context}'. "
-            "Пиши ТОЛЬКО на русском языке, строго запрещено использовать любые иностранные слова — заменяй их русскими эквивалентами (например, 'post' — 'пост', 'reels' — 'короткие видео', 'schedule' — 'график'). "
+            "Пиши ТОЛЬКО на русском языке, категорически запрещено использовать любые иностранные слова — заменяй их русскими эквивалентами (например, 'post' — 'пост', 'reels' — 'короткие видео', 'schedule' — 'график', 'firsthand' — 'из первых рук'). "
             "Составь план на 2 недели, укажи: "
-            "1) Дату и время публикации для каждого поста или видео. "
+            "1) Дату и время публикации для каждого поста или видео, начиная с 27 февраля 2025 года. "
             "2) Тип контента (пост, короткое видео, сторис). "
             "3) Краткое описание (2-3 предложения) с идеей контента, связанной с парикмахерскими услугами. "
             "4) Цель (привлечение, прогрев, продажа). "
-            "Учитывай частоту публикаций, указанную пользователем, и распредели контент равномерно. Пиши только текст контент-плана."
+            "Учитывай частоту публикаций, указанную пользователем, и распредели контент равномерно, добавь разнообразие (посты, видео, сторис). Пиши только текст контент-плана."
         ).format(client=client, channels=channels, frequency=frequency, context=BOOK_CONTEXT[:1000])
     elif mode == "image":
         full_prompt = (
@@ -213,7 +213,7 @@ def generate_text(user_id, mode):
                     logger.warning("Обнаружены иностранные символы, заменяю...")
                     replacements = {
                         'often': 'часто', 'juggle': 'сочетать', 'trend': 'тренд', 'confidence': 'уверенность',
-                        'budget': 'бюджет', 'products': 'продукты', 'they': 'они', 'know': 'знают'
+                        'budget': 'бюджет', 'products': 'продукты', 'they': 'они', 'know': 'знают', 'firsthand': 'из первых рук'
                     }
                     for eng, rus in replacements.items():
                         corrected_text = corrected_text.replace(eng, rus)
@@ -250,6 +250,62 @@ def generate_hashtags(topic):
     corrected_tags = [correct_text(tag[1:]) for tag in combined[:8]]
     final_tags = [f"#{tag}" for tag in corrected_tags] + ["#инстаграм", "#вконтакте", "#телеграм"]
     return " ".join(final_tags)
+
+# Генерация идей для контента
+def generate_ideas(topic):
+    logger.info(f"Генерация идей для темы: {topic}")
+    prompt = (
+        "Ты креативный SMM-специалист, работающий для русскоязычной аудитории. "
+        "Придумай 3-5 идей для контента по теме '{topic}'. "
+        "Идеи должны быть актуальными для социальных сетей в 2025 году (тренды: короткие видео, карусели, AMA), конкретными и интересными. "
+        "Пиши ТОЛЬКО на русском языке, любые иностранные слова запрещены — используй только русские эквиваленты. "
+        "Пример для темы 'кофе': 1) Короткое видео с процессом заваривания утреннего напитка, 2) Карусель с фактами о разных сортах, 3) AMA про любимый напиток подписчиков. "
+        "Верни только список идей в формате: 1) ..., 2) ..., 3) ... и т.д. "
+        "Убедись, что весь текст на русском языке, без исключений!"
+    ).format(topic=topic)
+    
+    headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": "meta-llama/Llama-3-8b-chat-hf",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 500,
+        "temperature": 0.9
+    }
+    for attempt in range(3):
+        try:
+            response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=10)
+            if response.status_code == 200:
+                raw_text = response.json()["choices"][0]["message"]["content"].strip()
+                logger.info(f"Получены идеи от Together AI: {raw_text}")
+                return raw_text.split("\n")
+            else:
+                logger.error(f"Ошибка API при генерации идей: {response.status_code} - {response.text}")
+        except (requests.RequestException, TimeoutError) as e:
+            logger.warning(f"Попытка {attempt+1} зависла, ждём 5 сек... Ошибка: {e}")
+            sleep(5)
+    return ["1) Идея не сгенерировалась, попробуй ещё раз!"]
+
+# Распознавание голосовых сообщений
+async def recognize_voice(file_path):
+    logger.info(f"Распознавание голосового сообщения: {file_path}")
+    audio = AudioSegment.from_ogg(file_path)
+    audio.export("temp.wav", format="wav")
+    recognizer = sr.Recognizer()
+    with sr.AudioFile("temp.wav") as source:
+        audio_data = recognizer.record(source)
+        try:
+            text = recognizer.recognize_google(audio_data, language="ru-RU")
+            logger.info(f"Распознанный текст: {text}")
+            os.remove("temp.wav")
+            return text
+        except sr.UnknownValueError:
+            logger.error("Не удалось распознать голос")
+            os.remove("temp.wav")
+            return "Не понял, что ты сказал. Повтори!"
+        except sr.RequestError as e:
+            logger.error(f"Ошибка сервиса распознавания: {e}")
+            os.remove("temp.wav")
+            return "Ошибка сервиса распознавания. Попробуй ещё раз!"
 
 # Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes, is_voice=False):
@@ -320,7 +376,55 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             logger.info("Некорректный запрос")
             await update.message.reply_text("Укажи тип запроса: 'пост про...', 'стори про...', 'стратегия про...', 'изображение про...', 'аналитика для...'.")
     else:
-        if user_data[user_id]["mode"] == "strategy":
+        if user_data[user_id]["mode"] == "analytics":
+            if user_data[user_id]["stage"] == "reach":
+                logger.info("Этап reach")
+                user_data[user_id]["reach"] = message
+                user_data[user_id]["stage"] = "engagement"
+                await update.message.reply_text("Какая вовлечённость? (Например, 20 лайков, 5 комментариев)")
+            elif user_data[user_id]["stage"] == "engagement":
+                logger.info("Этап engagement, генерация аналитики")
+                user_data[user_id]["engagement"] = message
+                mode = user_data[user_id]["mode"]
+                response = generate_text(user_id, mode)
+                await update.message.reply_text(response)
+                logger.info(f"Аналитика сгенерирована и отправлена для user_id={user_id}")
+                del user_data[user_id]
+        elif user_data[user_id]["mode"] != "strategy" and user_data[user_id]["mode"] != "content_plan":
+            if user_data[user_id]["stage"] == "ideas":
+                logger.info("Этап ideas")
+                user_data[user_id]["idea"] = message
+                user_data[user_id]["stage"] = "goal"
+                await update.message.reply_text("Что должно сделать человек после чтения текста? (Купить, подписаться, обратиться, обсудить)")
+            elif user_data[user_id]["stage"] == "goal":
+                logger.info("Этап goal")
+                user_data[user_id]["goal"] = message
+                user_data[user_id]["stage"] = "main_idea"
+                await update.message.reply_text("Какая главная мысль должна остаться у читателя?")
+            elif user_data[user_id]["stage"] == "main_idea":
+                logger.info("Этап main_idea")
+                user_data[user_id]["main_idea"] = message
+                user_data[user_id]["stage"] = "facts"
+                await update.message.reply_text("Какие факты, цифры или примеры могут подтвердить мысль?")
+            elif user_data[user_id]["stage"] == "facts":
+                logger.info("Этап facts")
+                user_data[user_id]["facts"] = message
+                user_data[user_id]["stage"] = "pains"
+                await update.message.reply_text("Какие боли и потребности аудитории решает этот текст?")
+            elif user_data[user_id]["stage"] == "pains":
+                logger.info("Этап pains, генерация текста")
+                user_data[user_id]["pains"] = message
+                mode = user_data[user_id]["mode"]
+                response = generate_text(user_id, mode)
+                hashtags = generate_hashtags(user_data[user_id]["topic"])
+                try:
+                    await update.message.reply_text(f"{response}\n\n{hashtags}")
+                    logger.info(f"Текст успешно отправлен для user_id={user_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка отправки текста: {e}")
+                logger.info(f"Текст сгенерирован для user_id={user_id}")
+                del user_data[user_id]
+        else:  # mode == "strategy" или "content_plan"
             if user_data[user_id]["stage"] == "client":
                 logger.info("Этап client")
                 user_data[user_id]["client"] = message
@@ -349,7 +453,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                         )
                     os.remove(pdf_file)
                     logger.info(f"Стратегия успешно отправлена как PDF для user_id={user_id}")
-                    # Задержка и вопрос о контент-плане
                     await asyncio.sleep(5)
                     await context.bot.send_message(
                         chat_id=update.message.chat_id,
