@@ -5,10 +5,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Скачиваем шрифт DejaVuSans.ttf из актуального релиза
-RUN apt-get update && apt-get install -y wget && \
-    wget -O DejaVuSans.ttf https://github.com/dejavu-fonts/dejavu-fonts/raw/ttf-2.37/ttf/DejaVuSans.ttf && \
-    apt-get remove -y wget && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+# Устанавливаем wget и unzip, скачиваем шрифт, извлекаем и чистим
+RUN apt-get update && apt-get install -y wget unzip && \
+    wget -O dejavu-fonts.zip https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.zip && \
+    unzip dejavu-fonts.zip -d dejavu-fonts && \
+    mv dejavu-fonts/dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf . && \
+    rm -rf dejavu-fonts dejavu-fonts.zip && \
+    apt-get remove -y wget unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 COPY bot.py .
 
