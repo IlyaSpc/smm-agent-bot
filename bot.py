@@ -1,4 +1,4 @@
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import requests
 import re
@@ -23,7 +23,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAHD9S-LbN
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "e176b9501183206d063aab78a4abfe82727a24004a07f617c9e06472e2630118")
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
 LANGUAGE_TOOL_URL = "https://languagetool.org/api/v2/check"
-PORT = int(os.environ.get("PORT", 8080))
+PORT = int(os.environ.get("PORT", 10000))  # Указываем порт 10000 для Render
 
 # Увеличиваем таймаут для Telegram до 30 секунд
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).read_timeout(30).write_timeout(30).build()
@@ -225,6 +225,15 @@ def generate_text(user_id, mode):
             "Стиль: дружелюбный, ясный, с позитивом и советами. "
             "Структура: оцени охват и вовлечённость, дай 2-3 предложения с выводами и 1-2 совета по улучшению. Пиши только текст анализа."
         ).format(topic=topic, reach=reach, engagement=engagement, context=BOOK_CONTEXT[:1000])
+    elif mode == "hashtags":
+        full_prompt = (
+            "Ты SMM-специалист с 10-летним опытом. "
+            "Составь список из 10 актуальных хэштегов на русском языке по теме '{topic}' для социальных сетей. "
+            "Пиши исключительно на русском языке, любые иностранные слова запрещены. "
+            "Хэштеги должны быть релевантны теме, популярны и подходить для Instagram, ВКонтакте и Telegram. "
+            "Пример: для 'кофе' — '#кофе #утро #энергия #вкус #напиток #релакс #кофейня #аромат #бодрость #жизнь'. "
+            "Пиши только список хэштегов, разделённых пробелами."
+        ).format(topic=topic)
 
     logger.info(f"Отправка запроса к Together AI для {mode}")
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
@@ -285,7 +294,10 @@ def generate_hashtags(topic):
         "маникюра": ["#маникюр", "#красота", "#уход", "#ногти", "#стиль", "#здоровье"],
         "хоккей": ["#хоккей", "#спорт", "#игра", "#команда", "#мотивация", "#сила"],
         "зиму": ["#зима", "#холод", "#снег", "#уют", "#природа", "#отдых"],
-        "барбершопа": ["#барбершоп", "#стрижка", "#уход", "#стиль", "#мужчины", "#красота"]
+        "барбершопа": ["#барбершоп", "#стрижка", "#уход", "#стиль", "#мужчины", "#красота"],
+        "кофе": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
+        "курения": ["#здоровье", "#вред", "#курение", "#отказ", "#жизнь", "#мотивация"],
+        "поезда": ["#поезда", "#путешествия", "#транспорт", "#технологии", "#дорога", "#приключения"]
     }
     relevant_tags = []
     for key in thematic_hashtags:
@@ -321,56 +333,46 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         await update.message.reply_text("Не смог обработать сообщение. Попробуй ещё раз!")
         return
 
-    # Проверяем, новый ли это запрос
-    new_request = any(x in message for x in ["пост про", "напиши пост про", "пост для", "напиши текст про",
-                                            "стори про", "напиши стори", "сторителлинг", "сторис", "стори для",
-                                            "стратегия про", "напиши стратегию", "стратегия для",
-                                            "изображение про", "изображение для",
-                                            "аналитика", "анализируй"])
-    
-    if new_request or user_id not in user_data:
-        logger.info("Новый запрос, проверяем тип")
-        if user_id in user_data:
-            del user_data[user_id]  # Очищаем старые данные для нового запроса
-        
-        recognized = False
-        topic = None
-        if any(x in message for x in ["пост про", "напиши пост про", "пост для", "напиши текст про"]):
-            user_data[user_id] = {"mode": "post", "stage": "ideas"}
-            topic = re.sub(r"(пост про|напиши пост про|пост для|напиши текст про)", "", message).strip()
-            recognized = True
-        elif any(x in message for x in ["стори про", "напиши стори", "сторителлинг", "сторис", "стори для"]):
-            user_data[user_id] = {"mode": "story", "stage": "ideas"}
-            topic = re.sub(r"(стори про|напиши стори|сторителлинг|сторис|стори для)", "", message).strip()
-            recognized = True
-        elif any(x in message for x in ["стратегия про", "напиши стратегию", "стратегия для"]):
-            user_data[user_id] = {"mode": "strategy", "stage": "client"}
-            topic = re.sub(r"(стратегия про|напиши стратегию|стратегия для)", "", message).strip()
-            recognized = True
-        elif any(x in message for x in ["изображение про", "изображение для"]):
-            user_data[user_id] = {"mode": "image", "stage": "ideas"}
-            topic = re.sub(r"(изображение про|изображение для)", "", message).strip()
-            recognized = True
-        elif "аналитика" in message or "анализируй" in message:
-            user_data[user_id] = {"mode": "analytics", "stage": "reach"}
-            topic = re.sub(r"(аналитика|анализируй|про|для)", "", message).strip()
-            recognized = True
+    # Меню кнопок
+    keyboard = [
+        ["Пост", "Сторис", "Аналитика"],
+        ["Стратегия/Контент-план", "Хэштеги"]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-        if recognized:
-            user_data[user_id]["topic"] = topic
-            logger.info(f"Установлен тип запроса: {user_data[user_id]['mode']}, тема: {topic}")
-            if user_data[user_id]["mode"] == "strategy":
-                await update.message.reply_text("Кто ваш идеальный клиент? (Опишите аудиторию: возраст, профессия, боли)")
-            elif user_data[user_id]["mode"] == "analytics":
-                await update.message.reply_text("Какой охват у вашего контента? (Например, 500 просмотров)")
-            else:
-                ideas = generate_ideas(topic)
-                await update.message.reply_text(f"Вот идеи для '{topic}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!")
-        else:
-            logger.info("Некорректный запрос")
-            await update.message.reply_text("Укажи тип запроса: 'пост про...', 'стори про...', 'стратегия про...', 'изображение про...', 'аналитика для...'.")
-    else:
-        if user_data[user_id]["mode"] in ["post", "story", "image"] and user_data[user_id]["stage"] == "ideas":
+    # Обработка кнопок
+    if message == "пост":
+        user_data[user_id] = {"mode": "post", "stage": "topic"}
+        await update.message.reply_text("О чём написать пост? (Например, 'кофе')", reply_markup=reply_markup)
+        return
+    elif message == "сторис":
+        user_data[user_id] = {"mode": "story", "stage": "topic"}
+        await update.message.reply_text("О чём написать сторис? (Например, 'утро')", reply_markup=reply_markup)
+        return
+    elif message == "аналитика":
+        user_data[user_id] = {"mode": "analytics", "stage": "reach"}
+        await update.message.reply_text("Какой охват у вашего контента? (Например, 500 просмотров)", reply_markup=reply_markup)
+        return
+    elif message == "стратегия/контент-план":
+        user_data[user_id] = {"mode": "strategy", "stage": "client"}
+        await update.message.reply_text("Для кого стратегия? (Опиши аудиторию: возраст, профессия, боли)", reply_markup=reply_markup)
+        return
+    elif message == "хэштеги":
+        user_data[user_id] = {"mode": "hashtags", "stage": "topic"}
+        await update.message.reply_text("Для какой темы нужны хэштеги?", reply_markup=reply_markup)
+        return
+
+    # Обработка стадий
+    if user_id in user_data:
+        mode = user_data[user_id]["mode"]
+        stage = user_data[user_id]["stage"]
+
+        if mode in ["post", "story", "image"] and stage == "topic":
+            user_data[user_id]["topic"] = message
+            ideas = generate_ideas(message)
+            user_data[user_id]["stage"] = "ideas"
+            await update.message.reply_text(f"Вот идеи для '{message}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!", reply_markup=reply_markup)
+        elif mode in ["post", "story", "image"] and stage == "ideas":
             if message.isdigit() and 1 <= int(message) <= 3:
                 idea_num = int(message)
                 ideas = generate_ideas(user_data[user_id]["topic"])
@@ -378,91 +380,99 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 user_data[user_id]["idea"] = selected_idea
             else:
                 user_data[user_id]["idea"] = message
-            response = generate_text(user_id, user_data[user_id]["mode"])
+            response = generate_text(user_id, mode)
             hashtags = generate_hashtags(user_data[user_id]["topic"])
-            await update.message.reply_text(f"{response}\n\n{hashtags}")
+            await update.message.reply_text(f"{response}\n\n{hashtags}", reply_markup=reply_markup)
             del user_data[user_id]
-        elif user_data[user_id]["mode"] == "strategy" or user_data[user_id]["mode"] == "content_plan":
-            if user_data[user_id]["stage"] == "client":
-                logger.info("Этап client")
-                user_data[user_id]["client"] = message
-                user_data[user_id]["stage"] = "channels"
-                await update.message.reply_text("Какие каналы вы хотите использовать для привлечения? (Соцсети, реклама, содержание)")
-            elif user_data[user_id]["stage"] == "channels":
-                logger.info("Этап channels")
-                user_data[user_id]["channels"] = message
-                user_data[user_id]["stage"] = "result"
-                await update.message.reply_text("Какой главный результат вы хотите получить? (Прибыль, клиенты, узнаваемость)")
-            elif user_data[user_id]["stage"] == "result":
-                logger.info("Этап result, генерация стратегии")
-                user_data[user_id]["result"] = message
-                mode = user_data[user_id]["mode"]
-                response = generate_text(user_id, mode)
-                hashtags = generate_hashtags(user_data[user_id]["topic"])
-                topic = user_data[user_id]["topic"]
-                try:
-                    pdf_file = create_pdf(response)
-                    with open(pdf_file, 'rb') as f:
-                        await context.bot.send_document(
-                            chat_id=update.message.chat_id,
-                            document=f,
-                            filename=f"Стратегия_{topic}.pdf",
-                            caption=f"Вот твоя стратегия в PDF!\n\n{hashtags}"
-                        )
-                    os.remove(pdf_file)
-                    logger.info(f"Стратегия успешно отправлена как PDF для user_id={user_id}")
-                    await asyncio.sleep(20)
-                    await context.bot.send_message(
+        elif mode == "hashtags" and stage == "topic":
+            user_data[user_id]["topic"] = message
+            response = generate_text(user_id, "hashtags")
+            await update.message.reply_text(response, reply_markup=reply_markup)
+            del user_data[user_id]
+        elif mode == "strategy" and stage == "client":
+            logger.info("Этап client")
+            user_data[user_id]["client"] = message
+            user_data[user_id]["stage"] = "channels"
+            await update.message.reply_text("Какие каналы вы хотите использовать для привлечения? (Соцсети, реклама, содержание)", reply_markup=reply_markup)
+        elif mode == "strategy" and stage == "channels":
+            logger.info("Этап channels")
+            user_data[user_id]["channels"] = message
+            user_data[user_id]["stage"] = "result"
+            await update.message.reply_text("Какой главный результат вы хотите получить? (Прибыль, клиенты, узнаваемость)", reply_markup=reply_markup)
+        elif mode == "strategy" and stage == "result":
+            logger.info("Этап result, генерация стратегии")
+            user_data[user_id]["result"] = message
+            response = generate_text(user_id, "strategy")
+            hashtags = generate_hashtags(user_data[user_id]["topic"])
+            topic = user_data[user_id]["topic"]
+            try:
+                pdf_file = create_pdf(response)
+                with open(pdf_file, 'rb') as f:
+                    await context.bot.send_document(
                         chat_id=update.message.chat_id,
-                        text="Хотите контент-план по этой стратегии? (Да/Нет)"
+                        document=f,
+                        filename=f"Стратегия_{topic}.pdf",
+                        caption=f"Вот твоя стратегия в PDF!\n\n{hashtags}",
+                        reply_markup=reply_markup
                     )
-                    user_data[user_id]["stage"] = "content_plan_offer"
-                except Exception as e:
-                    logger.error(f"Ошибка отправки стратегии как PDF: {e}", exc_info=True)
-                    await update.message.reply_text("Не удалось отправить стратегию как PDF. Попробуй ещё раз!")
-            elif user_data[user_id]["stage"] == "content_plan_offer":
-                if "да" in message:
-                    logger.info("Пользователь хочет контент-план")
-                    user_data[user_id]["stage"] = "frequency"
-                    await update.message.reply_text("Как часто хотите выпускать посты и короткие видео? (Например, '2 поста и 3 видео в неделю')")
-                else:
-                    logger.info("Пользователь отказался от контент-плана")
-                    del user_data[user_id]
-            elif user_data[user_id]["stage"] == "frequency":
-                logger.info("Этап frequency, генерация контент-плана")
-                user_data[user_id]["frequency"] = message
-                user_data[user_id]["mode"] = "content_plan"
-                response = generate_text(user_id, "content_plan")
-                hashtags = generate_hashtags(user_data[user_id]["topic"])
-                topic = user_data[user_id]["topic"]
-                try:
-                    pdf_file = create_pdf(response)
-                    with open(pdf_file, 'rb') as f:
-                        await context.bot.send_document(
-                            chat_id=update.message.chat_id,
-                            document=f,
-                            filename=f"Контент-план_{topic}.pdf",
-                            caption=f"Вот твой контент-план в PDF!\n\n{hashtags}"
-                        )
-                    os.remove(pdf_file)
-                    logger.info(f"Контент-план успешно отправлен как PDF для user_id={user_id}")
-                except Exception as e:
-                    logger.error(f"Ошибка отправки контент-плана как PDF: {e}", exc_info=True)
-                    await update.message.reply_text("Не удалось отправить контент-план как PDF. Попробуй ещё раз!")
+                os.remove(pdf_file)
+                logger.info(f"Стратегия успешно отправлена как PDF для user_id={user_id}")
+                await asyncio.sleep(20)
+                await context.bot.send_message(
+                    chat_id=update.message.chat_id,
+                    text="Хотите контент-план по этой стратегии? (Да/Нет)",
+                    reply_markup=reply_markup
+                )
+                user_data[user_id]["stage"] = "content_plan_offer"
+            except Exception as e:
+                logger.error(f"Ошибка отправки стратегии как PDF: {e}", exc_info=True)
+                await update.message.reply_text("Не удалось отправить стратегию как PDF. Попробуй ещё раз!", reply_markup=reply_markup)
+        elif mode == "strategy" and stage == "content_plan_offer":
+            if "да" in message:
+                logger.info("Пользователь хочет контент-план")
+                user_data[user_id]["stage"] = "frequency"
+                await update.message.reply_text("Как часто хотите выпускать посты и короткие видео? (Например, '2 поста и 3 видео в неделю')", reply_markup=reply_markup)
+            else:
+                logger.info("Пользователь отказался от контент-плана")
                 del user_data[user_id]
-        elif user_data[user_id]["mode"] == "analytics":
-            if user_data[user_id]["stage"] == "reach":
-                logger.info("Этап reach")
-                user_data[user_id]["reach"] = message
-                user_data[user_id]["stage"] = "engagement"
-                await update.message.reply_text("Какая вовлечённость у вашего контента? (Например, 50 лайков, 10 комментариев)")
-            elif user_data[user_id]["stage"] == "engagement":
-                logger.info("Этап engagement, генерация аналитики")
-                user_data[user_id]["engagement"] = message
-                response = generate_text(user_id, "analytics")
-                hashtags = generate_hashtags(user_data[user_id]["topic"])
-                await update.message.reply_text(f"{response}\n\n{hashtags}")
-                del user_data[user_id]
+                await update.message.reply_text("Выбери новое действие из меню ниже!", reply_markup=reply_markup)
+        elif mode == "content_plan" and stage == "frequency":
+            logger.info("Этап frequency, генерация контент-плана")
+            user_data[user_id]["frequency"] = message
+            response = generate_text(user_id, "content_plan")
+            hashtags = generate_hashtags(user_data[user_id]["topic"])
+            topic = user_data[user_id]["topic"]
+            try:
+                pdf_file = create_pdf(response)
+                with open(pdf_file, 'rb') as f:
+                    await context.bot.send_document(
+                        chat_id=update.message.chat_id,
+                        document=f,
+                        filename=f"Контент-план_{topic}.pdf",
+                        caption=f"Вот твой контент-план в PDF!\n\n{hashtags}",
+                        reply_markup=reply_markup
+                    )
+                os.remove(pdf_file)
+                logger.info(f"Контент-план успешно отправлен как PDF для user_id={user_id}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки контент-плана как PDF: {e}", exc_info=True)
+                await update.message.reply_text("Не удалось отправить контент-план как PDF. Попробуй ещё раз!", reply_markup=reply_markup)
+            del user_data[user_id]
+        elif mode == "analytics" and stage == "reach":
+            logger.info("Этап reach")
+            user_data[user_id]["reach"] = message
+            user_data[user_id]["stage"] = "engagement"
+            await update.message.reply_text("Какая вовлечённость у вашего контента? (Например, 50 лайков, 10 комментариев)", reply_markup=reply_markup)
+        elif mode == "analytics" and stage == "engagement":
+            logger.info("Этап engagement, генерация аналитики")
+            user_data[user_id]["engagement"] = message
+            response = generate_text(user_id, "analytics")
+            hashtags = generate_hashtags(user_data[user_id]["topic"])
+            await update.message.reply_text(f"{response}\n\n{hashtags}", reply_markup=reply_markup)
+            del user_data[user_id]
+    else:
+        # Если сообщение не из меню и нет активной стадии
+        await update.message.reply_text("Выбери действие из меню ниже!", reply_markup=reply_markup)
 
 # Обработка текстовых сообщений
 async def handle_text(update: Update, context: ContextTypes):
@@ -482,11 +492,14 @@ async def handle_voice(update: Update, context: ContextTypes):
 # Команда /start
 async def start(update: Update, context: ContextTypes):
     logger.info(f"Получена команда /start от user_id={update.message.from_user.id}")
+    keyboard = [
+        ["Пост", "Сторис", "Аналитика"],
+        ["Стратегия/Контент-план", "Хэштеги"]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
-        "Привет! Я твой SMM-помощник. Могу писать посты, сторис, стратегии, контент-планы и анализировать охваты для Instagram, ВКонтакте и Telegram.\n"
-        "Примеры запросов: 'пост про кофе', 'стори для города', 'стратегия для маркетолога', 'аналитика для постов'.\n"
-        "Отвечай на мои вопросы или отправь голосовое сообщение, чтобы получить результат!\n"
-        "Задержка ответа — от 5 до 20 секунд, пока я думаю над твоим запросом. Если я долго не отвечаю, подожди чуть-чуть — возможно, я просыпаюсь! 😊"
+        "Привет! Я твой SMM-помощник. Выбери, что я сделаю для тебя:",
+        reply_markup=reply_markup
     )
 
 # Webhook handler
