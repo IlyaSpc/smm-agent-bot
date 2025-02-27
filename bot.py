@@ -62,7 +62,7 @@ async def save_data():
 async def error_handler(update: Update, context: ContextTypes):
     logger.error(f"Произошла ошибка: {context.error}", exc_info=True)
     if update and update.message:
-        keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"]]
+        keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"], ["/stats"]]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Ой, что-то пошло не так 😅 Попробуй ещё разок!", reply_markup=reply_markup)
 
@@ -86,7 +86,7 @@ def correct_text(text):
             return text
     except (requests.RequestException, TimeoutError) as e:
         logger.error(f"Ошибка запроса к LanguageTool API: {e}")
-        return text  # Возвращаем исходный текст, если LanguageTool не сработал
+        return text
 
 async def recognize_voice(file_path):
     try:
@@ -263,7 +263,7 @@ def generate_text(user_id, mode):
                 f"Пример: для 'кофе' — '#кофе #утро #энергия #вкус #напиток #релакс #кофейня #аромат #бодрость #жизнь'. "
                 f"Пиши только список хэштегов, разделённых пробелами."
             )
-    else:  # lang == "en" (для примера, можно расширить)
+    else:  # lang == "en"
         if mode == "post":
             full_prompt = (
                 f"You are a copywriter with 10 years of experience, working based on 'Write, Cut', 'Lead Generation', and 'Trustworthy Texts'. "
@@ -315,7 +315,7 @@ def generate_hashtags(topic):
         return hashtag_cache[topic]
     logger.info(f"Генерация хэштегов для темы: {topic}")
     words = topic.split('_')
-    base_hashtags = [f"#{word.replace('ий', 'ие').replace('ек', 'ки')}" for word in words if len(word) > 2]  # Исправляем склонения
+    base_hashtags = [f"#{word.replace('ий', 'ие').replace('ек', 'ки')}" for word in words if len(word) > 2]
     thematic_hashtags = {
         "вред_алкоголя": ["#вредалкоголя", "#здоровье", "#трезвость", "#жизньбезалкоголя", "#опасность", "#алкоголь"],
         "бег": ["#бег", "#утреннийбег", "#спорт", "#фитнес", "#здоровье", "#мотивация"],
@@ -426,29 +426,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             del user_data[user_id]["stage"]
             await save_data()
             return
-
-        if message == "пост":
-            user_data[user_id] = {"mode": "post", "stage": "topic"}
-            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, о чём написать пост? (Например, 'кофе') 😊")
-            return
-        elif message == "сторис":
-            user_data[user_id] = {"mode": "story", "stage": "topic"}
-            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, о чём написать сторис? (Например, 'утро') 🌞")
-            return
-        elif message == "аналитика":
-            user_data[user_id] = {"mode": "analytics", "stage": "topic"}
-            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, для чего аналитика? (Например, 'посты про кофе') 📊")
-            return
-        elif message == "стратегия/контент-план":
-            user_data[user_id] = {"mode": "strategy", "stage": "topic"}
-            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, о чём стратегия? (Например, 'фитнес клуб') 🚀")
-            return
-        elif message == "хэштеги":
-            user_data[user_id] = {"mode": "hashtags", "stage": "topic"}
-            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, для какой темы нужны хэштеги? 🤓")
-            return
-
-        if stage == "topic":
+        elif stage == "topic":
             clean_topic = re.sub(r"^(о|про|для|об|на)\s+|[ие]$", "", message).strip().replace(" ", "_")
             user_data[user_id]["topic"] = clean_topic
             logger.info(f"Тема очищена: {clean_topic}")
@@ -614,8 +592,29 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             user_stats[user_id]["analytics"] += 1
             del user_data[user_id]
     else:
-        logger.info("Сообщение вне активной стадии")
-        await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, выбери действие из меню ниже! 😊", reply_markup=reply_markup)
+        if message == "пост":
+            user_data[user_id] = {"mode": "post", "stage": "topic"}
+            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, о чём написать пост? (Например, 'кофе') 😊")
+            return
+        elif message == "сторис":
+            user_data[user_id] = {"mode": "story", "stage": "topic"}
+            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, о чём написать сторис? (Например, 'утро') 🌞")
+            return
+        elif message == "аналитика":
+            user_data[user_id] = {"mode": "analytics", "stage": "topic"}
+            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, для чего аналитика? (Например, 'посты про кофе') 📊")
+            return
+        elif message == "стратегия/контент-план":
+            user_data[user_id] = {"mode": "strategy", "stage": "topic"}
+            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, о чём стратегия? (Например, 'фитнес клуб') 🚀")
+            return
+        elif message == "хэштеги":
+            user_data[user_id] = {"mode": "hashtags", "stage": "topic"}
+            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, для какой темы нужны хэштеги? 🤓")
+            return
+        else:
+            logger.info("Сообщение вне активной стадии")
+            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, выбери действие из меню ниже! 😊", reply_markup=reply_markup)
 
 async def handle_text(update: Update, context: ContextTypes):
     logger.info(f"Обработка текстового сообщения от {update.message.from_user.id}: {update.message.text}")
