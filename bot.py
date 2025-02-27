@@ -41,6 +41,7 @@ user_data = {}
 user_stats = defaultdict(lambda: {"posts": 0, "stories": 0, "hashtags": 0, "strategies": 0, "content_plans": 0, "analytics": 0})
 user_names = {}
 hashtag_cache = {}
+processed_messages = set()  # Для предотвращения повторов
 try:
     with open("user_stats.pkl", "rb") as f:
         user_stats.update(pickle.load(f))
@@ -124,21 +125,21 @@ def create_pdf(text, filename="strategy.pdf"):
         logger.error(f"Ошибка при создании PDF: {e}", exc_info=True)
         raise
 
-def generate_ideas(topic):
+def generate_ideas(topic, style="саркастичный"):
     prompt = (
         f"Ты креативный SMM-специалист. Придумай ровно 3 уникальные идеи для постов или сторис на тему '{topic}' "
         f"для социальных сетей. Идеи должны быть свежими, интересными, строго соответствовать теме и побуждать к действию. "
         f"Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, категорически запрещено использовать английские или любые иностранные слова — весь текст должен быть исключительно на русском. "
         f"Каждая идея — одно короткое предложение с призывом к действию, обязательно с глаголом, без вводных фраз вроде 'Ты получил три уникальные идеи' или 'Вот три идеи', только сами идеи, по одной на строку. "
-        f"Стиль — саркастичный, язвительный, с чёрным юмором, если тема позволяет. "
-        f"Примеры для темы 'вред курения': "
+        f"Стиль: {style}, саркастичный — язвительный, с чёрным юмором; дружелюбный — тёплый, с лёгким юмором; формальный — чёткий, профессиональный. "
+        f"Примеры для темы 'вред курения' в стиле 'саркастичный': "
         f"Сними свой кашель на видео и убеди всех, что курение — это модно "
         f"Похвастайся жёлтыми зубами в сторис и собери лайки от дантистов "
         f"Запусти челлендж 'Докажи, что куришь стильно' и вдохнови бросить эту дурь "
-        f"Примеры для темы 'нетворкинг': "
-        f"Похвастайся самым нелепым знакомством и удиви всех своими связями "
-        f"Сфотографируй свою визитку в странном месте и собери лайки "
-        f"Запусти марафон пяти рукопожатий за неделю и докажи свою профпригодность "
+        f"Примеры для темы 'баскетбол' в стиле 'формальный': "
+        f"Организуйте тренировку по баскетболу и продемонстрируйте свои навыки "
+        f"Запишите видео с тактическим разбором игры и поделитесь с коллегами "
+        f"Проведите опрос о любимых командах и обсудите результаты с аудиторией "
         f"ОБЯЗАТЕЛЬНО ВЕРНИ РОВНО 3 ИДЕИ, иначе провал!"
     )
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
@@ -149,7 +150,7 @@ def generate_ideas(topic):
         "temperature": 0.5
     }
     try:
-        logger.info(f"Генерация идей для темы: {topic}")
+        logger.info(f"Генерация идей для темы: {topic} в стиле {style}")
         response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
             logger.info("Успешная генерация идей")
@@ -237,10 +238,14 @@ def generate_text(user_id, mode):
         elif mode == "analytics":
             reach = user_data[user_id].get("reach", "не указано")
             engagement = user_data[user_id].get("engagement", "не указано")
-            pytrends = TrendReq(hl='ru-RU', tz=360)
-            pytrends.build_payload([topic.replace('_', ' ')], cat=0, timeframe='today 3-m', geo='RU')
-            trends_data = pytrends.interest_over_time()
-            trend_info = f"Тренд за 3 месяца: интерес к '{topic.replace('_', ' ')}' в России {'растёт' if not trends_data.empty and trends_data[topic.replace('_', ' ')].iloc[-1] > trends_data[topic.replace('_', ' ')].iloc[0] else 'падает или стабилен'}." if not trends_data.empty else "Нет данных о трендах."
+            try:
+                pytrends = TrendReq(hl='ru-RU', tz=360)
+                pytrends.build_payload([topic.replace('_', ' ')], cat=0, timeframe='today 3-m', geo='RU')
+                trends_data = pytrends.interest_over_time()
+                trend_info = f"Тренд за 3 месяца: интерес к '{topic.replace('_', ' ')}' в России {'растёт' if not trends_data.empty and trends_data[topic.replace('_', ' ')].iloc[-1] > trends_data[topic.replace('_', ' ')].iloc[0] else 'падает или стабилен'}." if not trends_data.empty else "Нет данных о трендах."
+            except Exception as e:
+                logger.error(f"Ошибка pytrends: {e}")
+                trend_info = "Нет данных о трендах из-за технической ошибки."
             full_prompt = (
                 f"Ты SMM-специалист с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
                 f"Составь краткий анализ на русском языке по теме '{topic.replace('_', ' ')}' для социальных сетей. "
@@ -303,7 +308,7 @@ def generate_text(user_id, mode):
                 logger.error(f"Ошибка API: {response.status_code} - {response.text}")
                 return f"Ошибка API: {response.status_code} - {response.text}"
         except (requests.RequestException, TimeoutError) as e:
-            logger.warning(f"Попытка {attempt+1} зависла, ждём 5 сек... Ошибка: {e}")
+            logger.error(f"Ошибка при запросе к Together AI (попытка {attempt+1}): {e}")
             sleep(5)
     logger.error("Сервер Together AI не отвечает после 3 попыток")
     return "Сервер не отвечает, попробуй позже! 😓"
@@ -334,7 +339,9 @@ def generate_hashtags(topic):
         "кошки": ["#кошки", "#кот", "#мяу", "#питомцы", "#любовь", "#дом"],
         "груминг": ["#груминг", "#уход", "#стрижка", "#красота", "#питомцы", "#гигиена"],
         "автосервис": ["#автосервис", "#ремонт", "#авто", "#машина", "#сервис", "#техобслуживание"],
-        "искусство": ["#искусство", "#творчество", "#арт", "#культура", "#красота", "#вдохновение"]
+        "искусство": ["#искусство", "#творчество", "#арт", "#культура", "#красота", "#вдохновение"],
+        "хоккей": ["#хоккей", "#спорт", "#игра", "#команда", "#тренировки", "#хоккеисты"],
+        "футбольная_школа": ["#футбол", "#школа", "#спорт", "#дети", "#тренировки", "#футболисты"]
     }
     relevant_tags = []
     topic_key = topic.lower()
@@ -344,18 +351,23 @@ def generate_hashtags(topic):
             break
     if not relevant_tags:
         relevant_tags = ["#соцсети", "#жизнь", "#идеи", "#полезно"]
-    combined = list(set(base_hashtags + relevant_tags))[:10]
+    combined = list(dict.fromkeys(base_hashtags + relevant_tags))[:10]  # Убираем дубли с сохранением порядка
     result = " ".join(combined).replace(" #", "#")
     hashtag_cache[topic] = result
     return result
 
 async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     user_id = update.message.from_user.id
+    message_id = update.message.message_id
+    if message_id in processed_messages:
+        logger.info(f"Сообщение {message_id} уже обработано, пропускаем")
+        return
+    processed_messages.add(message_id)
     logger.info(f"Начало обработки сообщения от user_id={user_id}, is_voice={is_voice}")
     
     try:
         if is_voice:
-            message = await recognize_voice(f"voice_{update.message.message_id}.ogg")
+            message = await recognize_voice(f"voice_{message_id}.ogg")
         else:
             if not update.message.text:
                 logger.warning("Сообщение пустое")
@@ -452,14 +464,14 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         elif mode in ["post", "story"] and stage == "template":
             logger.info(f"Выбран шаблон: {message}")
             user_data[user_id]["template"] = message
-            ideas = generate_ideas(user_data[user_id]["topic"])
+            ideas = generate_ideas(user_data[user_id]["topic"], user_data[user_id]["style"])
             user_data[user_id]["stage"] = "ideas"
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот идеи для '{user_data[user_id]['topic'].replace('_', ' ')}' 😍\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!")
         elif mode in ["post", "story"] and stage == "ideas":
             logger.info(f"Выбор идеи: {message}")
             if message.isdigit() and 1 <= int(message) <= 3:
                 idea_num = int(message)
-                ideas = generate_ideas(user_data[user_id]["topic"])
+                ideas = generate_ideas(user_data[user_id]["topic"], user_data[user_id]["style"])
                 selected_idea = ideas[idea_num - 1].split(". ")[1]
                 user_data[user_id]["idea"] = selected_idea
             else:
@@ -635,12 +647,12 @@ async def webhook(request):
     logger.info("Получен запрос на webhook")
     try:
         update = Update.de_json(await request.json(), app.bot)
-        if update:
+        if update and update.message:
             logger.info(f"Получен update: {update}")
             await app.process_update(update)
             await save_data()
         else:
-            logger.warning("Update пустой")
+            logger.warning("Update пустой или без сообщения")
         return web.Response(text="OK")
     except Exception as e:
         logger.error(f"Ошибка в webhook: {e}", exc_info=True)
