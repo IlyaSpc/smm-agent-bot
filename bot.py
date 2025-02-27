@@ -101,11 +101,14 @@ async def recognize_voice(file_path):
         return "Ошибка при распознавании голоса. Попробуй ещё раз!"
 
 # Создание PDF из текста
+# Создание PDF из текста
 def create_pdf(text, filename="strategy.pdf"):
     try:
+        logger.info("Проверка наличия шрифта DejaVuSans.ttf")
         if not os.path.exists("DejaVuSans.ttf"):
             logger.error("Шрифт DejaVuSans.ttf не найден!")
             raise FileNotFoundError("Шрифт DejaVuSans.ttf не найден!")
+        logger.info("Создание PDF...")
         pdf = FPDF()
         pdf.add_page()
         pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
@@ -117,6 +120,59 @@ def create_pdf(text, filename="strategy.pdf"):
     except Exception as e:
         logger.error(f"Ошибка при создании PDF: {e}", exc_info=True)
         raise
+
+# Обработка сообщений (фрагмент для strategy)
+async def handle_message(update: Update, context: ContextTypes, is_voice=False):
+    # ... (начало функции без изменений)
+    if user_id in user_data:
+        mode = user_data[user_id]["mode"]
+        stage = user_data[user_id]["stage"]
+
+        # ... (другие стадии без изменений)
+
+        elif mode == "strategy" and stage == "client":
+            logger.info("Этап client")
+            user_data[user_id]["client"] = message
+            user_data[user_id]["stage"] = "channels"
+            await update.message.reply_text("Какие каналы вы хотите использовать для привлечения? (Соцсети, реклама, содержание)", reply_markup=reply_markup)
+        elif mode == "strategy" and stage == "channels":
+            logger.info("Этап channels")
+            user_data[user_id]["channels"] = message
+            user_data[user_id]["stage"] = "result"
+            await update.message.reply_text("Какой главный результат вы хотите получить? (Прибыль, клиенты, узнаваемость)", reply_markup=reply_markup)
+        elif mode == "strategy" and stage == "result":
+            logger.info("Этап result, генерация стратегии")
+            user_data[user_id]["result"] = message
+            try:
+                logger.info("Генерация текста стратегии...")
+                response = generate_text(user_id, "strategy")
+                logger.info("Текст стратегии сгенерирован")
+                hashtags = generate_hashtags(user_data[user_id]["topic"])
+                topic = user_data[user_id]["topic"]
+                logger.info("Создание PDF для стратегии...")
+                pdf_file = create_pdf(response)
+                with open(pdf_file, 'rb') as f:
+                    logger.info("Отправка PDF...")
+                    await context.bot.send_document(
+                        chat_id=update.message.chat_id,
+                        document=f,
+                        filename=f"Стратегия_{topic}.pdf",
+                        caption=f"Вот твоя стратегия в PDF!\n\n{hashtags}",
+                        reply_markup=reply_markup
+                    )
+                os.remove(pdf_file)
+                logger.info(f"Стратегия успешно отправлена как PDF для user_id={user_id}")
+                await asyncio.sleep(20)
+                await context.bot.send_message(
+                    chat_id=update.message.chat_id,
+                    text="Хотите контент-план по этой стратегии? (Да/Нет)",
+                    reply_markup=reply_markup
+                )
+                user_data[user_id]["stage"] = "content_plan_offer"
+            except Exception as e:
+                logger.error(f"Ошибка при генерации стратегии или PDF: {e}", exc_info=True)
+                await update.message.reply_text("Не удалось сгенерировать стратегию. Попробуй ещё раз!", reply_markup=reply_markup)
+        # ... (остальные стадии без изменений)
 
 # Генерация изображения через Hugging Face
 def generate_image(prompt):
@@ -353,6 +409,7 @@ def generate_hashtags(topic):
 
 # Обработка сообщений
 # Обработка сообщений
+# Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     user_id = update.message.from_user.id
     logger.info(f"Начало обработки сообщения от user_id={user_id}, is_voice={is_voice}")
@@ -413,11 +470,8 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             else:
                 ideas = generate_ideas(clean_topic)
                 user_data[user_id]["stage"] = "ideas"
-                await update.message.reply_text(f"Вот идеи для '{clean_topic}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою! Хочешь с картинкой? Напиши 'с картинкой' после номера.", reply_markup=reply_markup)
+                await update.message.reply_text(f"Вот идеи для '{clean_topic}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!", reply_markup=reply_markup)
         elif mode in ["post", "story", "image"] and stage == "ideas":
-            logger.info(f"Обработка выбора идеи для mode={mode}, message={message}")
-            with_image = "с картинкой" in message.lower()
-            message = message.replace("с картинкой", "").strip()
             if message.isdigit() and 1 <= int(message) <= 3:
                 idea_num = int(message)
                 ideas = generate_ideas(user_data[user_id]["topic"])
@@ -425,33 +479,9 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 user_data[user_id]["idea"] = selected_idea
             else:
                 user_data[user_id]["idea"] = message
-            
-            try:
-                logger.info("Генерация текста...")
-                response = generate_text(user_id, mode)
-                logger.info("Текст сгенерирован успешно")
-                hashtags = generate_hashtags(user_data[user_id]["topic"])
-                if with_image:
-                    logger.info("Генерация картинки...")
-                    image_prompt = user_data[user_id]["topic"]
-                    image = generate_image(image_prompt)
-                    if image:
-                        logger.info("Отправка текста с картинкой")
-                        await context.bot.send_photo(
-                            chat_id=update.message.chat_id,
-                            photo=image,
-                            caption=f"{response}\n\n{hashtags}",
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        logger.warning("Картинка не сгенерирована")
-                        await update.message.reply_text(f"{response}\n\n{hashtags}\n\n(Не удалось сгенерировать картинку, попробуй позже!)", reply_markup=reply_markup)
-                else:
-                    logger.info("Отправка текста без картинки")
-                    await update.message.reply_text(f"{response}\n\n{hashtags}", reply_markup=reply_markup)
-            except Exception as e:
-                logger.error(f"Ошибка при генерации текста или картинки: {e}", exc_info=True)
-                await update.message.reply_text("Что-то пошло не так при генерации. Попробуй ещё раз!", reply_markup=reply_markup)
+            response = generate_text(user_id, mode)
+            hashtags = generate_hashtags(user_data[user_id]["topic"])
+            await update.message.reply_text(f"{response}\n\n{hashtags}", reply_markup=reply_markup)
             del user_data[user_id]
         # Остальные стадии остаются без изменений
     else:
