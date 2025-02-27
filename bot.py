@@ -11,7 +11,6 @@ from time import sleep
 from fpdf import FPDF
 import asyncio
 import random
-import base64
 from io import BytesIO
 
 # Настройка логирования
@@ -24,9 +23,9 @@ logger = logging.getLogger(__name__)
 # Настройки API
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAHD9S-LbNMLdHPYtdFZRwg_2JBu_tdd0ng")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "e176b9501183206d063aab78a4abfe82727a24004a07f617c9e06472e2630118")
-HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")  # Токен берётся из окружения
+HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
-HUGGINGFACE_API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
+HUGGINGFACE_API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"  # Новая модель для лучшего качества
 LANGUAGE_TOOL_URL = "https://languagetool.org/api/v2/check"
 PORT = int(os.environ.get("PORT", 10000))
 
@@ -123,11 +122,11 @@ def create_pdf(text, filename="strategy.pdf"):
 def generate_image(prompt):
     headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
     payload = {
-        "inputs": prompt,
-        "parameters": {"num_inference_steps": 50, "guidance_scale": 7.5}
+        "inputs": f"традиционная русская {prompt}, деревянные дома, зелёные поля, солнечный день, реализм, высокое качество, для Instagram",
+        "parameters": {"num_inference_steps": 75, "guidance_scale": 7.5}
     }
     try:
-        response = requests.post(HUGGINGFACE_API_URL, headers=headers, json=payload, timeout=30)
+        response = requests.post(HUGGINGFACE_API_URL, headers=headers, json=payload, timeout=40)
         if response.status_code == 200:
             image_bytes = response.content
             logger.info("Изображение успешно сгенерировано через Hugging Face")
@@ -335,7 +334,8 @@ def generate_hashtags(topic):
         "кофе": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
         "курения": ["#здоровье", "#вред", "#курение", "#отказ", "#жизнь", "#мотивация"],
         "поезда": ["#поезда", "#путешествия", "#транспорт", "#технологии", "#дорога", "#приключения"],
-        "лето": ["#лето", "#жара", "#отдых", "#солнце", "#природа", "#энергия"]
+        "лето": ["#лето", "#жара", "#отдых", "#солнце", "#природа", "#энергия"],
+        "деревня": ["#деревня", "#природа", "#традиции", "#жизнь", "#уют", "#путешествия"]
     }
     relevant_tags = []
     for key in thematic_hashtags:
@@ -432,7 +432,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             response = generate_text(user_id, mode)
             hashtags = generate_hashtags(user_data[user_id]["topic"])
             if with_image:
-                image_prompt = f"{user_data[user_id]['topic']} в стиле реализма, для социальных сетей"
+                image_prompt = user_data[user_id]["topic"]
                 image = generate_image(image_prompt)
                 if image:
                     await context.bot.send_photo(
