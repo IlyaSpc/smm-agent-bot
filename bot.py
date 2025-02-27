@@ -105,9 +105,9 @@ def create_pdf(text, filename="strategy.pdf"):
 
 def generate_ideas(topic):
     prompt = (
-        f"Ты креативный SMM-специалист. Придумай 5 уникальных идей для постов или сторис на тему '{topic}' "
-        "для социальных сетей. Идеи должны быть свежими, интересными и побуждать к действию. "
-        "Пиши только идеи, по одной в строке, без лишних слов."
+        f"Ты креативный SMM-специалист. Придумай ровно 3 уникальные идеи для постов или сторис на тему '{topic}' "
+        f"для социальных сетей. Идеи должны быть свежими, интересными и побуждать к действию. "
+        f"Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, без иностранных слов, по одной идее в строке, без лишнего текста."
     )
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
     payload = {
@@ -117,21 +117,25 @@ def generate_ideas(topic):
         "temperature": 0.7
     }
     try:
-        response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=15)
+        logger.info(f"Генерация идей для темы: {topic}")
+        response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
+            logger.info("Успешная генерация идей")
             raw_text = response.json()["choices"][0]["message"]["content"].strip()
-            ideas = raw_text.split("\n")[:3]  # Берём 3 идеи
+            ideas = raw_text.split("\n")[:3]
+            if len(ideas) < 3:
+                ideas += ["Идея не сгенерирована"] * (3 - len(ideas))
             return [f"{i+1}. {idea}" for i, idea in enumerate(ideas)]
         else:
             logger.error(f"Ошибка Together AI: {response.status_code} - {response.text}")
-            return ["1. Ошибка генерации идей", "2. Попробуй ещё раз", "3. Проверь соединение"]
+            return ["1. Ошибка генерации", "2. Попробуй ещё раз", "3. Проверь соединение"]
     except Exception as e:
         logger.error(f"Ошибка при генерации идей: {e}")
-        return ["1. Ошибка генерации идей", "2. Попробуй ещё раз", "3. Проверь соединение"]
+        return ["1. Ошибка генерации", "2. Попробуй ещё раз", "3. Проверь соединение"]
 
 def generate_text(user_id, mode):
     topic = user_data[user_id].get("topic", "не указано")
-    style = user_data[user_id].get("style", "дружелюбный")  # По умолчанию дружелюбный
+    style = user_data[user_id].get("style", "дружелюбный")
     full_prompt = ""
     
     if mode in ["post", "story"]:
@@ -144,7 +148,7 @@ def generate_text(user_id, mode):
         if mode == "post":
             full_prompt = (
                 f"Ты копирайтер с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
-                f"Напиши пост на русском языке (10-12 предложений) по теме '{topic}' для социальных сетей, используя идею: {idea}. "
+                f"Напиши пост на русском языке (10-12 предложений) по теме '{topic.replace('_', ' ')}' для социальных сетей, используя идею: {idea}. "
                 f"Цель текста: {goal}. Главная мысль: {main_idea}. Факты: {facts}. Боли и потребности аудитории: {pains}. "
                 f"Контекст из книг: '{BOOK_CONTEXT[:1000]}'. "
                 f"Стиль: {style}, живой, разговорный, с эмоциями, краткий, ясный, без штампов, канцеляризмов, с фактами, добавь позитив и лёгкий юмор. "
@@ -153,7 +157,7 @@ def generate_text(user_id, mode):
         elif mode == "story":
             full_prompt = (
                 f"Ты копирайтер с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
-                f"Напиши сторителлинг на русском языке (6-8 предложений) по теме '{topic}' для социальных сетей, используя идею: {idea}. "
+                f"Напиши сторителлинг на русском языке (6-8 предложений) по теме '{topic.replace('_', ' ')}' для социальных сетей, используя идею: {idea}. "
                 f"Цель текста: {goal}. Главная мысль: {main_idea}. Факты: {facts}. Боли и потребности аудитории: {pains}. "
                 f"Контекст из книг: '{BOOK_CONTEXT[:1000]}'. "
                 f"Стиль: {style}, эмоциональный, с метафорами, краткий, ясный, разговорный, без штампов, с позитивом и лёгким юмором. "
@@ -165,7 +169,7 @@ def generate_text(user_id, mode):
         result = user_data[user_id].get("result", "не указано")
         full_prompt = (
             f"Ты профессиональный маркетолог и SMM-специалист с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
-            f"Разработай стратегию клиентогенерации на русском языке по теме '{topic}'. "
+            f"Разработай стратегию клиентогенерации на русском языке по теме '{topic.replace('_', ' ')}'. "
             f"Целевая аудитория: {client}. Каналы привлечения: {channels}. Главный результат: {result}. "
             f"Контекст из книг: '{BOOK_CONTEXT[:1000]}'. "
             f"Пиши только на русском языке, без иностранных слов (например, 'aged' — 'в возрасте', 'thoughts' — 'мысли'). "
@@ -183,7 +187,7 @@ def generate_text(user_id, mode):
         channels = user_data[user_id].get("channels", "не указано")
         full_prompt = (
             f"Ты SMM-специалист с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
-            f"Составь контент-план на русском языке для продвижения '{topic}' в социальных сетях с 27 февраля 2025 года. "
+            f"Составь контент-план на русском языке для продвижения '{topic.replace('_', ' ')}' в социальных сетях с 27 февраля 2025 года. "
             f"Целевая аудитория: {client}. Каналы: {channels}. Частота публикаций: {frequency}. "
             f"Контекст из книг: '{BOOK_CONTEXT[:1000]}'. "
             f"Пиши только на русском языке, без иностранных слов (например, 'post' — 'пост', 'reels' — 'короткие видео'). "
@@ -194,14 +198,13 @@ def generate_text(user_id, mode):
     elif mode == "analytics":
         reach = user_data[user_id].get("reach", "не указано")
         engagement = user_data[user_id].get("engagement", "не указано")
-        # Google Trends для трендов
         pytrends = TrendReq(hl='ru-RU', tz=360)
-        pytrends.build_payload([topic], cat=0, timeframe='today 3-m', geo='RU')
+        pytrends.build_payload([topic.replace('_', ' ')], cat=0, timeframe='today 3-m', geo='RU')
         trends_data = pytrends.interest_over_time()
-        trend_info = f"Тренд за 3 месяца: интерес к '{topic}' в России {'растёт' if not trends_data.empty and trends_data[topic].iloc[-1] > trends_data[topic].iloc[0] else 'падает или стабилен'}." if not trends_data.empty else "Нет данных о трендах."
+        trend_info = f"Тренд за 3 месяца: интерес к '{topic.replace('_', ' ')}' в России {'растёт' if not trends_data.empty and trends_data[topic.replace('_', ' ')].iloc[-1] > trends_data[topic.replace('_', ' ')].iloc[0] else 'падает или стабилен'}." if not trends_data.empty else "Нет данных о трендах."
         full_prompt = (
             f"Ты SMM-специалист с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
-            f"Составь краткий анализ на русском языке по теме '{topic}' для социальных сетей. "
+            f"Составь краткий анализ на русском языке по теме '{topic.replace('_', ' ')}' для социальных сетей. "
             f"Охват: {reach}. Вовлечённость: {engagement}. Данные Google Trends: {trend_info}. "
             f"Контекст из книг: '{BOOK_CONTEXT[:1000]}'. "
             f"Пиши только на русском языке, без иностранных слов (например, 'reach' — 'охват', 'engagement' — 'вовлечённость'). "
@@ -210,7 +213,7 @@ def generate_text(user_id, mode):
     elif mode == "hashtags":
         full_prompt = (
             f"Ты SMM-специалист с 10-летним опытом. "
-            f"Составь список из 10 актуальных хэштегов на русском языке по теме '{topic}' для социальных сетей. "
+            f"Составь список из 10 актуальных хэштегов на русском языке по теме '{topic.replace('_', ' ')}' для социальных сетей. "
             f"Пиши только на русском языке, без иностранных слов. "
             f"Хэштеги должны быть релевантны теме, популярны и подходить для Instagram, ВКонтакте и Telegram. "
             f"Пример: для 'кофе' — '#кофе #утро #энергия #вкус #напиток #релакс #кофейня #аромат #бодрость #жизнь'. "
@@ -227,7 +230,7 @@ def generate_text(user_id, mode):
     }
     for attempt in range(3):
         try:
-            response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=15)
+            response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
             if response.status_code == 200:
                 logger.info("Успешный ответ от Together AI")
                 raw_text = response.json()["choices"][0]["message"]["content"].strip()
@@ -265,34 +268,25 @@ def generate_text(user_id, mode):
 
 def generate_hashtags(topic):
     logger.info(f"Генерация хэштегов для темы: {topic}")
-    words = topic.split()
+    words = topic.split('_')  # Разделяем по подчёркиванию
     base_hashtags = [f"#{word}" for word in words if len(word) > 2]
     thematic_hashtags = {
-        "психолог": ["#психология", "#саморазвитие", "#здоровье", "#эмоции", "#мотивация", "#уверенность"],
-        "маркетолог": ["#маркетинг", "#продвижение", "#реклама", "#бизнес", "#лидерство", "#коммуникация"],
-        "спортклуб": ["#фитнес", "#спорт", "#здоровье", "#тренировки", "#мотивация", "#сила"],
-        "маникюра": ["#маникюр", "#красота", "#уход", "#ногти", "#стиль", "#здоровье"],
-        "хоккей": ["#хоккей", "#спорт", "#игра", "#команда", "#мотивация", "#сила"],
-        "зиму": ["#зима", "#холод", "#снег", "#уют", "#природа", "#отдых"],
-        "барбершопа": ["#барбершоп", "#стрижка", "#уход", "#стиль", "#мужчины", "#красота"],
+        "вред_алкоголя": ["#вредалкоголя", "#здоровье", "#трезвость", "#жизньбезалкоголя", "#опасность", "#алкоголь"],
+        "бег": ["#бег", "#утреннийбег", "#спорт", "#фитнес", "#здоровье", "#мотивация"],
+        "спортклуб": ["#фитнес", "#спорт", "#тренировки", "#здоровье", "#мотивация", "#сила"],
         "кофе": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
-        "курения": ["#здоровье", "#вред", "#курение", "#отказ", "#жизнь", "#мотивация"],
-        "поезда": ["#поезда", "#путешествия", "#транспорт", "#технологии", "#дорога", "#приключения"],
-        "лето": ["#лето", "#жара", "#отдых", "#солнце", "#природа", "#энергия"],
-        "деревня": ["#деревня", "#природа", "#традиции", "#жизнь", "#уют", "#путешествия"]
+        "ночной_клуб": ["#ночнойклуб", "#вечеринка", "#танцы", "#музыка", "#отдых", "#тусовка"]
     }
     relevant_tags = []
+    topic_key = topic.lower().replace(" ", "_")
     for key in thematic_hashtags:
-        if key in topic.lower():
+        if key in topic_key:
             relevant_tags.extend(thematic_hashtags[key])
             break
     if not relevant_tags:
-        relevant_tags = ["#соцсети", "#идеи", "#полезно", "#жизнь"]
-    combined = list(set(base_hashtags + relevant_tags))
-    combined.sort(key=lambda x: (len(x), x in topic.lower()), reverse=True)
-    corrected_tags = [correct_text(tag[1:]) for tag in combined[:8]]
-    final_tags = [f"#{tag}" for tag in corrected_tags] + ["#инстаграм", "#вконтакте", "#телеграм"]
-    return " ".join(final_tags)
+        relevant_tags = ["#соцсети", "#жизнь", "#идеи", "#полезно"]
+    combined = list(set(base_hashtags + relevant_tags))[:10]
+    return " ".join(combined)
 
 async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     user_id = update.message.from_user.id
@@ -342,10 +336,12 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     if user_id in user_data:
         mode = user_data[user_id]["mode"]
         stage = user_data[user_id]["stage"]
+        logger.info(f"Текущая стадия: mode={mode}, stage={stage}")
 
         if mode in ["post", "story", "hashtags", "analytics"] and stage == "topic":
-            clean_topic = re.sub(r"^(о|про|для|об|на)\s+", "", message).strip()
+            clean_topic = re.sub(r"^(о|про|для|об|на)\s+", "", message).strip().replace(" ", "_")
             user_data[user_id]["topic"] = clean_topic
+            logger.info(f"Тема очищена: {clean_topic}")
             if mode == "hashtags":
                 response = generate_text(user_id, "hashtags")
                 await update.message.reply_text(response, reply_markup=reply_markup)
@@ -357,11 +353,13 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 user_data[user_id]["stage"] = "style"
                 await update.message.reply_text("Какой стиль текста? Выбери:", reply_markup=style_reply_markup)
         elif mode in ["post", "story"] and stage == "style":
+            logger.info(f"Выбран стиль: {message}")
             user_data[user_id]["style"] = message
             ideas = generate_ideas(user_data[user_id]["topic"])
             user_data[user_id]["stage"] = "ideas"
-            await update.message.reply_text(f"Вот идеи для '{user_data[user_id]['topic']}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!", reply_markup=reply_markup)
+            await update.message.reply_text(f"Вот идеи для '{user_data[user_id]['topic'].replace('_', ' ')}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!", reply_markup=reply_markup)
         elif mode in ["post", "story"] and stage == "ideas":
+            logger.info(f"Выбор идеи: {message}")
             if message.isdigit() and 1 <= int(message) <= 3:
                 idea_num = int(message)
                 ideas = generate_ideas(user_data[user_id]["topic"])
@@ -386,10 +384,10 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         elif mode == "strategy" and stage == "result":
             logger.info("Этап result, генерация стратегии")
             user_data[user_id]["result"] = message
-            response = generate_text(user_id, "strategy")
-            hashtags = generate_hashtags(user_data[user_id]["topic"])
-            topic = user_data[user_id]["topic"]
             try:
+                response = generate_text(user_id, "strategy")
+                hashtags = generate_hashtags(user_data[user_id]["topic"])
+                topic = user_data[user_id]["topic"]
                 pdf_file = create_pdf(response)
                 with open(pdf_file, 'rb') as f:
                     await context.bot.send_document(
@@ -409,8 +407,8 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 )
                 user_data[user_id]["stage"] = "content_plan_offer"
             except Exception as e:
-                logger.error(f"Ошибка отправки стратегии как PDF: {e}")
-                await update.message.reply_text("Не удалось отправить стратегию как PDF. Попробуй ещё раз!", reply_markup=reply_markup)
+                logger.error(f"Ошибка при генерации стратегии или PDF: {e}")
+                await update.message.reply_text("Не удалось сгенерировать стратегию. Попробуй ещё раз!", reply_markup=reply_markup)
         elif mode == "strategy" and stage == "content_plan_offer":
             if "да" in message:
                 logger.info("Пользователь хочет контент-план")
