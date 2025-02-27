@@ -11,6 +11,8 @@ from time import sleep
 from fpdf import FPDF
 import asyncio
 import random
+import base64
+from io import BytesIO
 
 # Настройка логирования
 logging.basicConfig(
@@ -22,9 +24,11 @@ logger = logging.getLogger(__name__)
 # Настройки API
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAHD9S-LbNMLdHPYtdFZRwg_2JBu_tdd0ng")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "e176b9501183206d063aab78a4abfe82727a24004a07f617c9e06472e2630118")
+HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY", "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")  # Добавь свой токен
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
+HUGGINGFACE_API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"  # Stable Diffusion
 LANGUAGE_TOOL_URL = "https://languagetool.org/api/v2/check"
-PORT = int(os.environ.get("PORT", 10000))  # Указываем порт 10000 для Render
+PORT = int(os.environ.get("PORT", 10000))
 
 # Увеличиваем таймаут для Telegram до 30 секунд
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).read_timeout(30).write_timeout(30).build()
@@ -115,6 +119,26 @@ def create_pdf(text, filename="strategy.pdf"):
         logger.error(f"Ошибка при создании PDF: {e}", exc_info=True)
         raise
 
+# Генерация изображения через Hugging Face
+def generate_image(prompt):
+    headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
+    payload = {
+        "inputs": prompt,
+        "parameters": {"num_inference_steps": 50, "guidance_scale": 7.5}
+    }
+    try:
+        response = requests.post(HUGGINGFACE_API_URL, headers=headers, json=payload, timeout=30)
+        if response.status_code == 200:
+            image_bytes = response.content
+            logger.info("Изображение успешно сгенерировано через Hugging Face")
+            return BytesIO(image_bytes)
+        else:
+            logger.error(f"Ошибка Hugging Face API: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"Ошибка генерации изображения: {e}")
+        return None
+
 # Генерация разнообразных идей для постов, сторис и т.д.
 def generate_ideas(topic):
     idea_pool = [
@@ -134,13 +158,13 @@ def generate_ideas(topic):
         f"Назови три причины попробовать {topic} прямо сейчас.",
         f"Расскажи, как {topic} спасает от хаоса и суеты."
     ]
-    selected_ideas = random.sample(idea_pool, 3)  # Выбираем 3 случайные уникальные идеи
+    selected_ideas = random.sample(idea_pool, 3)
     return [f"{i+1}. {idea}" for i, idea in enumerate(selected_ideas)]
 
 # Генерация текста через Together AI API
 def generate_text(user_id, mode):
     topic = user_data[user_id].get("topic", "не указано")
-    full_prompt = ""  # Инициализируем пустой промпт
+    full_prompt = ""
     
     if mode in ["post", "story", "image"]:
         goal = user_data[user_id].get("goal", "привлечение")
@@ -264,7 +288,7 @@ def generate_text(user_id, mode):
                 raw_text = response.json()["choices"][0]["message"]["content"].strip()
                 logger.info(f"Получен текст от Together AI: {raw_text}")
                 corrected_text = correct_text(raw_text)
-                if re.search(r'[^\u0400-\u04FF\s\d.,!?():;-]', corrected_text):  # Проверка на не-русские символы
+                if re.search(r'[^\u0400-\u04FF\s\d.,!?():;-]', corrected_text):
                     logger.warning("Обнаружены не-русские символы, заменяю...")
                     replacements = {
                         'aged': 'в возрасте', 'thoughts': 'мысли', 'confidence': 'уверенность', 'find': 'найти',
@@ -284,7 +308,7 @@ def generate_text(user_id, mode):
                     }
                     for eng, rus in replacements.items():
                         corrected_text = corrected_text.replace(eng, rus)
-                corrected_text = correct_text(corrected_text)  # Двойная проверка для опечаток
+                corrected_text = correct_text(corrected_text)
                 return corrected_text
             else:
                 logger.error(f"Ошибка API: {response.status_code} - {response.text}")
@@ -394,8 +418,10 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             else:
                 ideas = generate_ideas(clean_topic)
                 user_data[user_id]["stage"] = "ideas"
-                await update.message.reply_text(f"Вот идеи для '{clean_topic}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!", reply_markup=reply_markup)
+                await update.message.reply_text(f"Вот идеи для '{clean_topic}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою! Хочешь с картинкой? Напиши 'с картинкой' после номера.", reply_markup=reply_markup)
         elif mode in ["post", "story", "image"] and stage == "ideas":
+            with_image = "с картинкой" in message.lower()
+            message = message.replace("с картинкой", "").strip()
             if message.isdigit() and 1 <= int(message) <= 3:
                 idea_num = int(message)
                 ideas = generate_ideas(user_data[user_id]["topic"])
@@ -405,7 +431,20 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 user_data[user_id]["idea"] = message
             response = generate_text(user_id, mode)
             hashtags = generate_hashtags(user_data[user_id]["topic"])
-            await update.message.reply_text(f"{response}\n\n{hashtags}", reply_markup=reply_markup)
+            if with_image:
+                image_prompt = f"{user_data[user_id]['topic']} в стиле реализма, для социальных сетей"
+                image = generate_image(image_prompt)
+                if image:
+                    await context.bot.send_photo(
+                        chat_id=update.message.chat_id,
+                        photo=image,
+                        caption=f"{response}\n\n{hashtags}",
+                        reply_markup=reply_markup
+                    )
+                else:
+                    await update.message.reply_text(f"{response}\n\n{hashtags}\n\n(Не удалось сгенерировать картинку, попробуй позже!)", reply_markup=reply_markup)
+            else:
+                await update.message.reply_text(f"{response}\n\n{hashtags}", reply_markup=reply_markup)
             del user_data[user_id]
         elif mode == "strategy" and stage == "client":
             logger.info("Этап client")
