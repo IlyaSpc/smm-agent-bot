@@ -121,7 +121,7 @@ def create_pdf(text, filename="strategy.pdf"):
         logger.info(f"PDF успешно создан: {filename}")
         return filename
     except Exception as e:
-        logger.error(f"Ошибка при создания PDF: {e}", exc_info=True)
+        logger.error(f"Ошибка при создании PDF: {e}", exc_info=True)
         raise
 
 def generate_ideas(topic):
@@ -134,8 +134,7 @@ def generate_ideas(topic):
         f"Примеры для темы 'вред курения': "
         f"Сними свой кашель на видео и убеди всех, что курение — это модно "
         f"Похвастайся жёлтыми зубами в сторис и собери лайки от дантистов "
-        f"'}}
-Запусти челлендж 'Докажи, что куришь стильно' и вдохнови бросить эту дурь "
+        f"Запусти челлендж 'Докажи, что куришь стильно' и вдохнови бросить эту дурь "
         f"Примеры для темы 'нетворкинг': "
         f"Похвастайся самым нелепым знакомством и удиви всех своими связями "
         f"Сфотографируй свою визитку в странном месте и собери лайки "
@@ -165,6 +164,7 @@ def generate_ideas(topic):
     except Exception as e:
         logger.error(f"Ошибка при генерации идей: {e}")
         return ["1. Ошибка генерации", "2. Попробуй ещё раз", "3. Проверь соединение"]
+
 def generate_text(user_id, mode):
     topic = user_data[user_id].get("topic", "не_указано")
     style = user_data[user_id].get("style", "дружелюбный")
