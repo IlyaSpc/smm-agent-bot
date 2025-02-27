@@ -106,7 +106,7 @@ def generate_ideas(topic):
     prompt = (
         f"Ты креативный SMM-специалист. Придумай ровно 3 уникальные идеи для постов или сторис на тему '{topic}' "
         f"для социальных сетей. Идеи должны быть свежими, интересными и побуждать к действию. "
-        f"Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, категорически запрещено использовать английские или любые иностранные слова. "
+        f"Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, категорически запрещено использовать английские или любые иностранные слова — весь текст должен быть исключительно на русском, включая примеры. "
         f"Каждая идея — одна строка, без лишнего текста и без нумерации. Примеры: "
         f"Покажи свой лучший прыжок на тренировке и получи скидку на абонемент "
         f"Расскажи историю о том как бег изменил твою жизнь "
@@ -179,7 +179,7 @@ def generate_text(user_id, mode):
             f"Контекст из книг: '{BOOK_CONTEXT[:1000]}'. "
             f"Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, без иностранных слов (например, 'aged' — 'в возрасте', 'thoughts' — 'мысли'). "
             f"Стиль: конкретный, пошаговый, дружелюбный, с примерами, без штампов, с фактами. "
-            f"Задачи: 1) Опиши аудиторию: возраст, пол, профессия, интересы, поведение, привычки. "
+            f"Задачи: 1) Опиши аудиториу: возраст, пол, профессия, интересы, поведение, привычки. "
             f"2) Перечисли 5-7 болей аудитории (список). 3) Перечисли 5-7 желаний аудитории (список). "
             f"4) Опиши момент покупки: эмоции, желания, барьеры, детали по теме '{topic}'. "
             f"5) Создай 5 персонажей ЦА: имя, демография, цели, боли, занятия, цитата. "
@@ -233,7 +233,7 @@ def generate_text(user_id, mode):
         "max_tokens": 3000,
         "temperature": 0.5
     }
-    timeout = 60 if mode == "strategy" else 30
+    timeout = 60  # Увеличиваем для всех режимов
     for attempt in range(3):
         try:
             response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=timeout)
@@ -280,11 +280,12 @@ def generate_hashtags(topic):
         "вред_алкоголя": ["#вредалкоголя", "#здоровье", "#трезвость", "#жизньбезалкоголя", "#опасность", "#алкоголь"],
         "бег": ["#бег", "#утреннийбег", "#спорт", "#фитнес", "#здоровье", "#мотивация"],
         "баскетбол": ["#баскетбол", "#спорт", "#игра", "#команда", "#тренировки", "#фитнес"],
+        "сон": ["#сон", "#здоровье", "#отдых", "#мечты", "#спокойствие", "#энергия"],
         "спортклуб": ["#фитнес", "#спорт", "#тренировки", "#здоровье", "#мотивация", "#сила"],
         "кофе": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
         "кофе_утром": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
         "ночной_клуб": ["#ночнойклуб", "#вечеринка", "#танцы", "#музыка", "#отдых", "#тусовка"],
-        "фитнес_клуба": ["#фитнес", "#спорт", "#тренировки", "#здоровье", "#мотивация", "#сила"],
+        "фитнес_клуб": ["#фитнес", "#спорт", "#тренировки", "#здоровье", "#мотивация", "#сила"],
         "барбершоп": ["#барбершоп", "#стрижка", "#уход", "#стиль", "#мужчины", "#красота"]
     }
     relevant_tags = []
@@ -365,7 +366,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 await update.message.reply_text("Какой охват у вашего контента? (Например, '500 просмотров')")
             elif mode in ["post", "story"]:
                 user_data[user_id]["stage"] = "style"
-                await update.message.reply_text("Какой стиль текста? Выбери: формальный, дружелюбный, саркастичный")
+                await update.message.reply_text("Какой стиль текста?", reply_markup=style_reply_markup)
             elif mode == "strategy":
                 user_data[user_id]["stage"] = "client"
                 await update.message.reply_text("Для кого стратегия? (Опиши аудиторию: возраст, профессия, боли)")
@@ -435,27 +436,31 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 logger.info("Пользователь отказался от контент-плана")
                 await update.message.reply_text("Выбери новое действие!", reply_markup=reply_markup)
                 del user_data[user_id]
-        elif mode == "content_plan" and stage == "frequency":
+        elif mode == "strategy" and stage == "frequency":
             logger.info("Этап frequency, генерация контент-плана")
             user_data[user_id]["frequency"] = message
-            response = generate_text(user_id, "content_plan")
-            hashtags = generate_hashtags(user_data[user_id]["topic"])
-            topic = user_data[user_id]["topic"]
             try:
-                pdf_file = create_pdf(response)
-                with open(pdf_file, 'rb') as f:
-                    await context.bot.send_document(
-                        chat_id=update.message.chat_id,
-                        document=f,
-                        filename=f"Контент-план_{topic}.pdf",
-                        caption=f"Вот твой контент-план в PDF!\n\n{hashtags}",
-                        reply_markup=reply_markup
-                    )
-                os.remove(pdf_file)
-                logger.info(f"Контент-план успешно отправлен как PDF для user_id={user_id}")
+                response = generate_text(user_id, "content_plan")
+                hashtags = generate_hashtags(user_data[user_id]["topic"])
+                topic = user_data[user_id]["topic"]
+                try:
+                    pdf_file = create_pdf(response)
+                    with open(pdf_file, 'rb') as f:
+                        await context.bot.send_document(
+                            chat_id=update.message.chat_id,
+                            document=f,
+                            filename=f"Контент-план_{topic}.pdf",
+                            caption=f"Вот твой контент-план в PDF!\n\n{hashtags}",
+                            reply_markup=reply_markup
+                        )
+                    os.remove(pdf_file)
+                    logger.info(f"Контент-план успешно отправлен как PDF для user_id={user_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка создания PDF для контент-плана: {e}", exc_info=True)
+                    await update.message.reply_text(f"Не удалось создать PDF. Вот текст:\n{response[:4000]}\n\n{hashtags}", reply_markup=reply_markup)
             except Exception as e:
-                logger.error(f"Ошибка отправки контент-плана как PDF: {e}", exc_info=True)
-                await update.message.reply_text("Не удалось отправить контент-план как PDF. Попробуй ещё раз!", reply_markup=reply_markup)
+                logger.error(f"Ошибка при генерации контент-плана: {e}", exc_info=True)
+                await update.message.reply_text("Не удалось сгенерировать контент-план. Попробуй ещё раз!", reply_markup=reply_markup)
             del user_data[user_id]
         elif mode == "analytics" and stage == "reach":
             logger.info("Этап reach")
