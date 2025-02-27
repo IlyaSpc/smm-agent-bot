@@ -24,9 +24,9 @@ logger = logging.getLogger(__name__)
 # Настройки API
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAHD9S-LbNMLdHPYtdFZRwg_2JBu_tdd0ng")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "e176b9501183206d063aab78a4abfe82727a24004a07f617c9e06472e2630118")
-HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY", "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")  # Добавь свой токен
+HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")  # Токен берётся из окружения
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
-HUGGINGFACE_API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"  # Stable Diffusion
+HUGGINGFACE_API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
 LANGUAGE_TOOL_URL = "https://languagetool.org/api/v2/check"
 PORT = int(os.environ.get("PORT", 10000))
 
