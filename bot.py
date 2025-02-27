@@ -41,7 +41,7 @@ user_data = {}
 user_stats = defaultdict(lambda: {"posts": 0, "stories": 0, "hashtags": 0, "strategies": 0, "content_plans": 0, "analytics": 0})
 user_names = {}
 hashtag_cache = {}
-processed_messages = set()  # Для предотвращения повторов
+processed_messages = set()
 try:
     with open("user_stats.pkl", "rb") as f:
         user_stats.update(pickle.load(f))
@@ -130,16 +130,17 @@ def generate_ideas(topic, style="саркастичный"):
         f"Ты креативный SMM-специалист. Придумай ровно 3 уникальные идеи для постов или сторис на тему '{topic}' "
         f"для социальных сетей. Идеи должны быть свежими, интересными, строго соответствовать теме и побуждать к действию. "
         f"Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, категорически запрещено использовать английские или любые иностранные слова — весь текст должен быть исключительно на русском. "
-        f"Каждая идея — одно короткое предложение с призывом к действию, обязательно с глаголом, без вводных фраз вроде 'Ты получил три уникальные идеи' или 'Вот три идеи', только сами идеи, по одной на строку. "
+        f"СТРОГО ТОЛЬКО 3 ИДЕИ, НИКАКИХ ВВОДНЫХ ФРАЗ вроде 'Ты получил три уникальные идеи', 'Вот три идеи' или 'Here are three unique ideas', только сами идеи, по одной на строку, без нумерации или лишнего текста. "
         f"Стиль: {style}, саркастичный — язвительный, с чёрным юмором; дружелюбный — тёплый, с лёгким юмором; формальный — чёткий, профессиональный. "
+        f"Каждая идея — одно короткое предложение с призывом к действию и глаголом. "
         f"Примеры для темы 'вред курения' в стиле 'саркастичный': "
         f"Сними свой кашель на видео и убеди всех, что курение — это модно "
         f"Похвастайся жёлтыми зубами в сторис и собери лайки от дантистов "
         f"Запусти челлендж 'Докажи, что куришь стильно' и вдохнови бросить эту дурь "
-        f"Примеры для темы 'баскетбол' в стиле 'формальный': "
-        f"Организуйте тренировку по баскетболу и продемонстрируйте свои навыки "
-        f"Запишите видео с тактическим разбором игры и поделитесь с коллегами "
-        f"Проведите опрос о любимых командах и обсудите результаты с аудиторией "
+        f"Примеры для темы 'чай' в стиле 'дружелюбный': "
+        f"Завари свой любимый чай и расскажи друзьям, как он спасает твой день "
+        f"Сделай фото утренней чашки и спроси подписчиков, какой чай любят они "
+        f"Покажи свой чайный ритуал и предложи всем попробовать его повторить "
         f"ОБЯЗАТЕЛЬНО ВЕРНИ РОВНО 3 ИДЕИ, иначе провал!"
     )
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
@@ -155,7 +156,7 @@ def generate_ideas(topic, style="саркастичный"):
         if response.status_code == 200:
             logger.info("Успешная генерация идей")
             raw_text = response.json()["choices"][0]["message"]["content"].strip()
-            ideas = [line.strip() for line in raw_text.split("\n") if line.strip() and not any(phrase in line.lower() for phrase in ["ты получил", "вот три", "идея для"])]
+            ideas = [line.strip() for line in raw_text.split("\n") if line.strip() and not any(phrase in line.lower() for phrase in ["ты получил", "вот три", "идея для", "here are", "ideas for"])]
             filtered_ideas = [idea for idea in ideas if any(char.isalpha() for char in idea.split()[0])]
             ideas = filtered_ideas[:3] if len(filtered_ideas) >= 3 else filtered_ideas + ["Идея не сгенерирована"] * (3 - len(filtered_ideas))
             return [f"{i+1}. {idea}" for i, idea in enumerate(ideas)]
@@ -324,7 +325,7 @@ def generate_hashtags(topic):
         "бег": ["#бег", "#утреннийбег", "#спорт", "#фитнес", "#здоровье", "#мотивация"],
         "баскетбол": ["#баскетбол", "#спорт", "#игра", "#команда", "#тренировки", "#фитнес"],
         "сон": ["#сон", "#здоровье", "#отдых", "#мечты", "#спокойствие", "#энергия"],
-        "спортклуб": ["#фитнес", "#спорт", "#тренировки", "#здоровье", "#мотивация", "#сила"],
+        "спорт_клуб": ["#фитнес", "#спорт", "#тренировки", "#здоровье", "#мотивация", "#сила"],
         "кофе": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
         "кофе_утром": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
         "посты_про_кофе": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс", "#кофейня", "#аромат"],
@@ -341,7 +342,10 @@ def generate_hashtags(topic):
         "автосервис": ["#автосервис", "#ремонт", "#авто", "#машина", "#сервис", "#техобслуживание"],
         "искусство": ["#искусство", "#творчество", "#арт", "#культура", "#красота", "#вдохновение"],
         "хоккей": ["#хоккей", "#спорт", "#игра", "#команда", "#тренировки", "#хоккеисты"],
-        "футбольная_школа": ["#футбол", "#школа", "#спорт", "#дети", "#тренировки", "#футболисты"]
+        "футбольная_школа": ["#футбол", "#школа", "#спорт", "#дети", "#тренировки", "#футболисты"],
+        "чай": ["#чай", "#утро", "#релакс", "#вкус", "#напиток", "#энергия"],
+        "утро": ["#утро", "#энергия", "#день", "#мотивация", "#спокойствие", "#начало"],
+        "посты_про_баскетбол": ["#баскетбол", "#спорт", "#игра", "#команда", "#тренировки", "#фитнес"]
     }
     relevant_tags = []
     topic_key = topic.lower()
@@ -351,7 +355,7 @@ def generate_hashtags(topic):
             break
     if not relevant_tags:
         relevant_tags = ["#соцсети", "#жизнь", "#идеи", "#полезно"]
-    combined = list(dict.fromkeys(base_hashtags + relevant_tags))[:10]  # Убираем дубли с сохранением порядка
+    combined = list(dict.fromkeys(base_hashtags + relevant_tags))[:10]
     result = " ".join(combined).replace(" #", "#")
     hashtag_cache[topic] = result
     return result
@@ -446,6 +450,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 response = generate_text(user_id, "hashtags")
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твои хэштеги! 😎\n{response}", reply_markup=reply_markup)
                 user_stats[user_id]["hashtags"] += 1
+                await save_data()
                 del user_data[user_id]
             elif mode == "analytics":
                 user_data[user_id]["stage"] = "reach"
@@ -466,7 +471,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             user_data[user_id]["template"] = message
             ideas = generate_ideas(user_data[user_id]["topic"], user_data[user_id]["style"])
             user_data[user_id]["stage"] = "ideas"
-            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот идеи для '{user_data[user_id]['topic'].replace('_', ' ')}' 😍\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!")
+            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот идеи для '{user_data[user_id]['topic'].replace('_', ' ')}' 😍\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3) или напиши свою!")
         elif mode in ["post", "story"] and stage == "ideas":
             logger.info(f"Выбор идеи: {message}")
             if message.isdigit() and 1 <= int(message) <= 3:
@@ -474,15 +479,16 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 ideas = generate_ideas(user_data[user_id]["topic"], user_data[user_id]["style"])
                 selected_idea = ideas[idea_num - 1].split(". ")[1]
                 user_data[user_id]["idea"] = selected_idea
+                await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, генерирую для тебя {mode}... ⏳")
+                response = generate_text(user_id, mode)
+                hashtags = generate_hashtags(user_data[user_id]["topic"])
+                user_data[user_id]["last_result"] = f"{response}\n\n{hashtags}"
+                user_stats[user_id]["posts" if mode == "post" else "stories"] += 1
+                await save_data()
+                await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твой {mode}! 🔥\n{response}\n\n{hashtags}\n\nНе нравится? Напиши 'отредактировать'!", reply_markup=reply_markup)
+                user_data[user_id]["stage"] = "edit"
             else:
-                user_data[user_id]["idea"] = message
-            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, генерирую для тебя {mode}... ⏳")
-            response = generate_text(user_id, mode)
-            hashtags = generate_hashtags(user_data[user_id]["topic"])
-            user_data[user_id]["last_result"] = f"{response}\n\n{hashtags}"
-            user_stats[user_id]["posts" if mode == "post" else "stories"] += 1
-            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твой {mode}! 🔥\n{response}\n\n{hashtags}\n\nНе нравится? Напиши 'отредактировать'!", reply_markup=reply_markup)
-            user_data[user_id]["stage"] = "edit"
+                await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, выбери номер идеи (1, 2, 3) или напиши свою! 😊")
         elif mode in ["post", "story"] and stage == "edit":
             if message == "отредактировать":
                 user_data[user_id]["stage"] = "edit_request"
@@ -541,6 +547,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 os.remove(pdf_file)
                 logger.info(f"Стратегия успешно отправлена как PDF для user_id={user_id}")
                 user_stats[user_id]["strategies"] += 1
+                await save_data()
                 await asyncio.sleep(20)
                 await context.bot.send_message(
                     chat_id=update.message.chat_id,
@@ -581,6 +588,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                     os.remove(pdf_file)
                     logger.info(f"Контент-план успешно отправлен как PDF для user_id={user_id}")
                     user_stats[user_id]["content_plans"] += 1
+                    await save_data()
                 except Exception as e:
                     logger.error(f"Ошибка создания PDF для контент-плана: {e}", exc_info=True)
                     await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, не удалось создать PDF 😕 Вот текст:\n{response[:4000]}\n\n{hashtags}", reply_markup=reply_markup)
@@ -601,6 +609,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             hashtags = generate_hashtags(user_data[user_id]["topic"])
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твоя аналитика! 📈\n{response}\n\n{hashtags}", reply_markup=reply_markup)
             user_stats[user_id]["analytics"] += 1
+            await save_data()
             del user_data[user_id]
     else:
         if message == "пост":
