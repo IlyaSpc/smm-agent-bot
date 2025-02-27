@@ -5,3 +5,4 @@ aiohttp
 speechrecognition
 pydub
 fpdf
+pytrends
