@@ -555,14 +555,8 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
 
     # Базовое меню
     base_keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"], ["/stats"]]
-    # Меню с кнопкой "Отредактировать"
     edit_keyboard = [["Пост", "Сторис", "Отредактировать"], ["Аналитика", "Стратегия/Контент-план"], ["Хэштеги", "/stats"]]
-    # Выбор меню
-    if user_id in user_data and "last_result" in user_data[user_id] and user_data[user_id].get("mode") in ["post", "story"]:
-        keyboard = edit_keyboard
-    else:
-        keyboard = base_keyboard
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup(base_keyboard, resize_keyboard=True)  # По умолчанию базовое
     
     style_keyboard = [["Формальный", "Дружелюбный", "Саркастичный"]]
     style_reply_markup = ReplyKeyboardMarkup(style_keyboard, resize_keyboard=True)
@@ -576,10 +570,15 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             user_data[user_id] = {"mode": "name", "stage": "ask_name"}
             await update.message.reply_text("Привет! Я твой SMM-помощник 😎 Как тебя зовут?")
         else:
+            # Проверяем, есть ли last_result для показа edit_keyboard
+            if user_id in user_data and "last_result" in user_data[user_id] and user_data[user_id].get("mode") in ["post", "story"]:
+                reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
             await update.message.reply_text(f"Привет, {user_names[user_id]}! Я твой SMM-помощник 😎 Выбери, что я сделаю для тебя:", reply_markup=reply_markup)
         return
     elif message == "/stats":
         stats = user_stats[user_id]
+        if user_id in user_data and "last_result" in user_data[user_id] and user_data[user_id].get("mode") in ["post", "story"]:
+            reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
         await update.message.reply_text(
             f"{user_names.get(user_id, 'Друг')}, твоя статистика:\n"
             f"Постов — {stats['posts']}\n"
@@ -621,6 +620,8 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             if mode == "hashtags":
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, генерирую для тебя хэштеги... ⏳")
                 response = generate_text(user_id, "hashtags")
+                if user_id in user_data and "last_result" in user_data[user_id] and user_data[user_id].get("mode") in ["post", "story"]:
+                    reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твои хэштеги! 😎\n{response}", reply_markup=reply_markup)
                 user_stats[user_id]["hashtags"] += 1
                 await save_data()
@@ -658,7 +659,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 user_data[user_id]["last_result"] = f"{response}\n\n{hashtags}"
                 user_stats[user_id]["posts" if mode == "post" else "stories"] += 1
                 await save_data()
-                # Полностью сохраняем нужные данные для редактирования
+                # Сохраняем все данные для редактирования
                 user_data[user_id] = {
                     "mode": mode,
                     "last_result": user_data[user_id]["last_result"],
@@ -666,12 +667,14 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                     "template": user_data[user_id]["template"],
                     "topic": user_data[user_id]["topic"]
                 }
+                reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)  # Принудительно edit_keyboard
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твой {mode}! 🔥\n{response}\n\n{hashtags}\n\nНе нравится? Выбери 'Отредактировать' в меню!", reply_markup=reply_markup)
             else:
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, выбери номер идеи (1, 2, 3) или напиши свою! 😊")
         elif mode in ["post", "story"] and message == "отредактировать" and "last_result" in user_data[user_id]:
             user_data[user_id]["stage"] = "edit_request"
-            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, что исправить в последнем результате? (Например, 'убери слово кофе')")
+            reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
+            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, что исправить в последнем результате? (Например, 'убери слово кофе')", reply_markup=reply_markup)
         elif mode in ["post", "story"] and stage == "edit_request":
             edit_request = message
             last_result = user_data[user_id]["last_result"]
@@ -693,8 +696,8 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
             corrected_text = correct_text(response.json()["choices"][0]["message"]["content"].strip()) if response.status_code == 200 else "Ошибка редактирования 😓"
             user_data[user_id]["last_result"] = corrected_text
+            reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)  # Принудительно edit_keyboard
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот исправленный {mode}! 🔥\n{corrected_text}\n\nНе нравится? Выбери 'Отредактировать' в меню!", reply_markup=reply_markup)
-        # Остальные ветки (strategy, analytics) остаются без изменений
     else:
         if message == "пост":
             user_data[user_id] = {"mode": "post", "stage": "topic"}
@@ -718,10 +721,13 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             return
         elif message == "отредактировать" and user_id in user_data and "last_result" in user_data[user_id]:
             user_data[user_id]["stage"] = "edit_request"
-            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, что исправить в последнем результате? (Например, 'убери слово кофе')")
+            reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
+            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, что исправить в последнем результате? (Например, 'убери слово кофе')", reply_markup=reply_markup)
             return
         else:
             logger.info("Сообщение вне активной стадии")
+            if user_id in user_data and "last_result" in user_data[user_id] and user_data[user_id].get("mode") in ["post", "story"]:
+                reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, выбери действие из меню ниже! 😊", reply_markup=reply_markup)
 async def handle_text(update: Update, context: ContextTypes):
     logger.info(f"Обработка текстового сообщения от {update.message.from_user.id}: {update.message.text}")
