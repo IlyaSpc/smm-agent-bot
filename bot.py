@@ -42,12 +42,12 @@ async def error_handler(update: Update, context: ContextTypes):
     if update and update.message:
         keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"]]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text("Что-то пошло не так. Попробуй ещё раз!", reply_markup=reply_markup)
+        await update.message.reply_text("Ой, что-то пошло не так 😅 Попробуй ещё разок!", reply_markup=reply_markup)
 
 def correct_text(text):
     payload = {"text": text, "language": "ru"}
     try:
-        response = requests.post(LANGUAGE_TOOL_URL, data=payload, timeout=5)
+        response = requests.post(LANGUAGE_TOOL_URL, data=payload, timeout=10)
         if response.status_code == 200:
             data = response.json()
             corrected_text = text
@@ -80,10 +80,10 @@ async def recognize_voice(file_path):
         return text.lower()
     except sr.UnknownValueError:
         logger.error("Не удалось распознать голосовое сообщение")
-        return "Не разобрал, что ты сказал. Попробуй ещё раз!"
+        return "Не разобрал, что ты сказал 😕 Попробуй ещё раз!"
     except Exception as e:
         logger.error(f"Ошибка распознавания голоса: {e}")
-        return "Ошибка при распознавании голоса. Попробуй ещё раз!"
+        return "Ошибка при распознавании голоса 😓 Попробуй ещё раз!"
 
 def create_pdf(text, filename="strategy.pdf"):
     try:
@@ -106,18 +106,21 @@ def generate_ideas(topic):
     prompt = (
         f"Ты креативный SMM-специалист. Придумай ровно 3 уникальные идеи для постов или сторис на тему '{topic}' "
         f"для социальных сетей. Идеи должны быть свежими, интересными и побуждать к действию. "
-        f"Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, категорически запрещено использовать английские или любые иностранные слова — весь текст должен быть исключительно на русском, включая примеры. "
-        f"Каждая идея — одна строка, без лишнего текста и без нумерации. Примеры: "
+        f"Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, категорически запрещено использовать английские или любые иностранные слова — весь текст должен быть исключительно на русском. "
+        f"Каждая идея — одно короткое предложение с призывом к действию, без лишнего текста, вроде 'Вот три идеи...', и без нумерации. "
+        f"Примеры: "
         f"Покажи свой лучший прыжок на тренировке и получи скидку на абонемент "
         f"Расскажи историю о том как бег изменил твою жизнь "
-        f"Запусти челлендж кто пробежит больше за неделю"
+        f"Запусти челлендж кто пробежит больше за неделю "
+        f"Сфоткай свой утренний кофе и выиграй набор зёрен "
+        f"Поделись своим ритуалом перед сном и вдохнови других"
     )
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": "meta-llama/Llama-3-8b-chat-hf",
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 500,
-        "temperature": 0.7
+        "temperature": 0.5
     }
     try:
         logger.info(f"Генерация идей для темы: {topic}")
@@ -125,7 +128,8 @@ def generate_ideas(topic):
         if response.status_code == 200:
             logger.info("Успешная генерация идей")
             raw_text = response.json()["choices"][0]["message"]["content"].strip()
-            ideas = [line.strip() for line in raw_text.split("\n") if line.strip()][:3]
+            ideas = [line.strip() for line in raw_text.split("\n") if line.strip() and not line.startswith("Вот") and not line.startswith("Здесь")]
+            ideas = ideas[:3]
             if len(ideas) < 3:
                 ideas += ["Идея не сгенерирована"] * (3 - len(ideas))
             return [f"{i+1}. {idea}" for i, idea in enumerate(ideas)]
@@ -179,7 +183,7 @@ def generate_text(user_id, mode):
             f"Контекст из книг: '{BOOK_CONTEXT[:1000]}'. "
             f"Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, без иностранных слов (например, 'aged' — 'в возрасте', 'thoughts' — 'мысли'). "
             f"Стиль: конкретный, пошаговый, дружелюбный, с примерами, без штампов, с фактами. "
-            f"Задачи: 1) Опиши аудиториу: возраст, пол, профессия, интересы, поведение, привычки. "
+            f"Задачи: 1) Опиши аудиторию: возраст, пол, профессия, интересы, поведение, привычки. "
             f"2) Перечисли 5-7 болей аудитории (список). 3) Перечисли 5-7 желаний аудитории (список). "
             f"4) Опиши момент покупки: эмоции, желания, барьеры, детали по теме '{topic}'. "
             f"5) Создай 5 персонажей ЦА: имя, демография, цели, боли, занятия, цитата. "
@@ -198,7 +202,7 @@ def generate_text(user_id, mode):
             f"Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, без иностранных слов (например, 'post' — 'пост', 'reels' — 'короткие видео'). "
             f"Составь план на 2 недели: 1) Дата и время публикации. 2) Тип контента (пост, короткое видео). "
             f"3) Краткое описание (2-3 предложения) с идеей, связанной с '{topic}'. 4) Цель (привлечение, прогрев, продажа). "
-            f"Если частота — '2 поста и 3 видео в неделю', создай 4 поста и 6 видео, распредели равномерно. Пиши только текст плана."
+            f"Распредели контент равномерно согласно частоте публикаций. Пиши только текст плана."
         )
     elif mode == "analytics":
         reach = user_data[user_id].get("reach", "не указано")
@@ -233,7 +237,7 @@ def generate_text(user_id, mode):
         "max_tokens": 3000,
         "temperature": 0.5
     }
-    timeout = 60  # Увеличиваем для всех режимов
+    timeout = 60
     for attempt in range(3):
         try:
             response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=timeout)
@@ -270,7 +274,7 @@ def generate_text(user_id, mode):
             logger.warning(f"Попытка {attempt+1} зависла, ждём 5 сек... Ошибка: {e}")
             sleep(5)
     logger.error("Сервер Together AI не отвечает после 3 попыток")
-    return "Сервер не отвечает, попробуй позже!"
+    return "Сервер не отвечает, попробуй позже! 😓"
 
 def generate_hashtags(topic):
     logger.info(f"Генерация хэштегов для темы: {topic}")
@@ -284,6 +288,8 @@ def generate_hashtags(topic):
         "спортклуб": ["#фитнес", "#спорт", "#тренировки", "#здоровье", "#мотивация", "#сила"],
         "кофе": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
         "кофе_утром": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
+        "прогулка": ["#прогулка", "#природа", "#отдых", "#здоровье", "#релакс", "#движение"],
+        "религия": ["#религия", "#духовность", "#вера", "#молитва", "#традиции", "#спокойствие"],
         "ночной_клуб": ["#ночнойклуб", "#вечеринка", "#танцы", "#музыка", "#отдых", "#тусовка"],
         "фитнес_клуб": ["#фитнес", "#спорт", "#тренировки", "#здоровье", "#мотивация", "#сила"],
         "барбершоп": ["#барбершоп", "#стрижка", "#уход", "#стиль", "#мужчины", "#красота"]
@@ -311,7 +317,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 logger.warning("Сообщение пустое")
                 keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"]]
                 reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-                await update.message.reply_text("Сообщение пустое. Напиши что-нибудь!", reply_markup=reply_markup)
+                await update.message.reply_text("Сообщение пустое 😅 Напиши что-нибудь!", reply_markup=reply_markup)
                 return
             message = update.message.text.strip().lower()
         logger.info(f"Получено сообщение: {message}")
@@ -319,7 +325,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         logger.error(f"Ошибка при получении сообщения: {e}", exc_info=True)
         keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"]]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text("Не смог обработать сообщение. Попробуй ещё раз!", reply_markup=reply_markup)
+        await update.message.reply_text("Не смог обработать твое сообщение 😓 Попробуй ещё раз!", reply_markup=reply_markup)
         return
 
     keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"]]
@@ -329,23 +335,23 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
 
     if message == "пост":
         user_data[user_id] = {"mode": "post", "stage": "topic"}
-        await update.message.reply_text("О чём написать пост? (Например, 'кофе')")
+        await update.message.reply_text("О чём написать пост? (Например, 'кофе') 😊")
         return
     elif message == "сторис":
         user_data[user_id] = {"mode": "story", "stage": "topic"}
-        await update.message.reply_text("О чём написать сторис? (Например, 'утро')")
+        await update.message.reply_text("О чём написать сторис? (Например, 'утро') 🌞")
         return
     elif message == "аналитика":
         user_data[user_id] = {"mode": "analytics", "stage": "topic"}
-        await update.message.reply_text("Для чего аналитика? (Например, 'посты про кофе')")
+        await update.message.reply_text(" Для чего аналитика? (Например, 'посты про кофе') 📊")
         return
     elif message == "стратегия/контент-план":
         user_data[user_id] = {"mode": "strategy", "stage": "topic"}
-        await update.message.reply_text("О чём стратегия? (Например, 'фитнес клуб')")
+        await update.message.reply_text("О чём стратегия? (Например, 'фитнес клуб') 🚀")
         return
     elif message == "хэштеги":
         user_data[user_id] = {"mode": "hashtags", "stage": "topic"}
-        await update.message.reply_text("Для какой темы нужны хэштеги?")
+        await update.message.reply_text("Для какой темы нужны хэштеги? 🤓")
         return
 
     if user_id in user_data and "mode" in user_data[user_id] and "stage" in user_data[user_id]:
@@ -358,24 +364,25 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             user_data[user_id]["topic"] = clean_topic
             logger.info(f"Тема очищена: {clean_topic}")
             if mode == "hashtags":
+                await update.message.reply_text("Генерирую для тебя хэштеги... ⏳")
                 response = generate_text(user_id, "hashtags")
-                await update.message.reply_text(response, reply_markup=reply_markup)
+                await update.message.reply_text(f"Вот твои хэштеги! 😎\n{response}", reply_markup=reply_markup)
                 del user_data[user_id]
             elif mode == "analytics":
                 user_data[user_id]["stage"] = "reach"
-                await update.message.reply_text("Какой охват у вашего контента? (Например, '500 просмотров')")
+                await update.message.reply_text("Какой охват у вашего контента? (Например, '500 просмотров') 📈")
             elif mode in ["post", "story"]:
                 user_data[user_id]["stage"] = "style"
-                await update.message.reply_text("Какой стиль текста?", reply_markup=style_reply_markup)
+                await update.message.reply_text("Какой стиль текста? 😊", reply_markup=style_reply_markup)
             elif mode == "strategy":
                 user_data[user_id]["stage"] = "client"
-                await update.message.reply_text("Для кого стратегия? (Опиши аудиторию: возраст, профессия, боли)")
+                await update.message.reply_text("Для кого стратегия? (Опиши аудиторию: возраст, профессия, боли) 👥")
         elif mode in ["post", "story"] and stage == "style":
             logger.info(f"Выбран стиль: {message}")
             user_data[user_id]["style"] = message
             ideas = generate_ideas(user_data[user_id]["topic"])
             user_data[user_id]["stage"] = "ideas"
-            await update.message.reply_text(f"Вот идеи для '{user_data[user_id]['topic'].replace('_', ' ')}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!")
+            await update.message.reply_text(f"Вот идеи для '{user_data[user_id]['topic'].replace('_', ' ')}' 😍\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!")
         elif mode in ["post", "story"] and stage == "ideas":
             logger.info(f"Выбор идеи: {message}")
             if message.isdigit() and 1 <= int(message) <= 3:
@@ -385,23 +392,25 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 user_data[user_id]["idea"] = selected_idea
             else:
                 user_data[user_id]["idea"] = message
+            await update.message.reply_text(f"Генерирую для тебя {mode}... ⏳")
             response = generate_text(user_id, mode)
             hashtags = generate_hashtags(user_data[user_id]["topic"])
-            await update.message.reply_text(f"{response}\n\n{hashtags}", reply_markup=reply_markup)
+            await update.message.reply_text(f"Вот твой {mode}! 🔥\n{response}\n\n{hashtags}", reply_markup=reply_markup)
             del user_data[user_id]
         elif mode == "strategy" and stage == "client":
             logger.info("Этап client")
             user_data[user_id]["client"] = message
             user_data[user_id]["stage"] = "channels"
-            await update.message.reply_text("Какие каналы вы хотите использовать для привлечения? (Соцсети, реклама, содержание)")
+            await update.message.reply_text("Какие каналы вы хотите использовать для привлечения? (Соцсети, реклама, содержание) 📱")
         elif mode == "strategy" and stage == "channels":
             logger.info("Этап channels")
             user_data[user_id]["channels"] = message
             user_data[user_id]["stage"] = "result"
-            await update.message.reply_text("Какой главный результат вы хотите получить? (Прибыль, клиенты, узнаваемость)")
+            await update.message.reply_text("Какой главный результат вы хотите получить? (Прибыль, клиенты, узнаваемость) 🎯")
         elif mode == "strategy" and stage == "result":
             logger.info("Этап result, генерация стратегии")
             user_data[user_id]["result"] = message
+            await update.message.reply_text("Генерирую для тебя стратегию... ⏳")
             try:
                 response = generate_text(user_id, "strategy")
                 hashtags = generate_hashtags(user_data[user_id]["topic"])
@@ -412,7 +421,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                         chat_id=update.message.chat_id,
                         document=f,
                         filename=f"Стратегия_{topic}.pdf",
-                        caption=f"Вот твоя стратегия в PDF!\n\n{hashtags}",
+                        caption=f"Вот твоя стратегия в PDF! 🔥\n\n{hashtags}",
                         reply_markup=reply_markup
                     )
                 os.remove(pdf_file)
@@ -420,25 +429,26 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 await asyncio.sleep(20)
                 await context.bot.send_message(
                     chat_id=update.message.chat_id,
-                    text="Хотите контент-план по этой стратегии? (Да/Нет)",
+                    text="Хотите контент-план по этой стратегии? (Да/Нет) 😊",
                     reply_markup=reply_markup
                 )
                 user_data[user_id]["stage"] = "content_plan_offer"
             except Exception as e:
                 logger.error(f"Ошибка при генерации стратегии или PDF: {e}", exc_info=True)
-                await update.message.reply_text("Не удалось сгенерировать стратегию. Попробуй ещё раз!", reply_markup=reply_markup)
+                await update.message.reply_text("Не удалось сгенерировать стратегию 😓 Попробуй ещё раз!", reply_markup=reply_markup)
         elif mode == "strategy" and stage == "content_plan_offer":
             if "да" in message:
                 logger.info("Пользователь хочет контент-план")
                 user_data[user_id]["stage"] = "frequency"
-                await update.message.reply_text("Как часто хотите выпускать посты и короткие видео? (Например, '2 поста и 3 видео в неделю')")
+                await update.message.reply_text("Как часто хотите выпускать посты и короткие видео? (Например, '2 поста и 3 видео в неделю') 📅")
             else:
                 logger.info("Пользователь отказался от контент-плана")
-                await update.message.reply_text("Выбери новое действие!", reply_markup=reply_markup)
+                await update.message.reply_text("Выбери новое действие! 😎", reply_markup=reply_markup)
                 del user_data[user_id]
         elif mode == "strategy" and stage == "frequency":
             logger.info("Этап frequency, генерация контент-плана")
             user_data[user_id]["frequency"] = message
+            await update.message.reply_text("Генерирую для тебя контент-план... ⏳")
             try:
                 response = generate_text(user_id, "content_plan")
                 hashtags = generate_hashtags(user_data[user_id]["topic"])
@@ -450,33 +460,34 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                             chat_id=update.message.chat_id,
                             document=f,
                             filename=f"Контент-план_{topic}.pdf",
-                            caption=f"Вот твой контент-план в PDF!\n\n{hashtags}",
+                            caption=f"Вот твой контент-план в PDF! 🎉\n\n{hashtags}",
                             reply_markup=reply_markup
                         )
                     os.remove(pdf_file)
                     logger.info(f"Контент-план успешно отправлен как PDF для user_id={user_id}")
                 except Exception as e:
                     logger.error(f"Ошибка создания PDF для контент-плана: {e}", exc_info=True)
-                    await update.message.reply_text(f"Не удалось создать PDF. Вот текст:\n{response[:4000]}\n\n{hashtags}", reply_markup=reply_markup)
+                    await update.message.reply_text(f"Не удалось создать PDF 😕 Вот текст:\n{response[:4000]}\n\n{hashtags}", reply_markup=reply_markup)
             except Exception as e:
                 logger.error(f"Ошибка при генерации контент-плана: {e}", exc_info=True)
-                await update.message.reply_text("Не удалось сгенерировать контент-план. Попробуй ещё раз!", reply_markup=reply_markup)
+                await update.message.reply_text("Не удалось сгенерировать контент-план 😓 Попробуй ещё раз!", reply_markup=reply_markup)
             del user_data[user_id]
         elif mode == "analytics" and stage == "reach":
             logger.info("Этап reach")
             user_data[user_id]["reach"] = message
             user_data[user_id]["stage"] = "engagement"
-            await update.message.reply_text("Какая вовлечённость у вашего контента? (Например, '50 лайков, 10 комментариев')")
+            await update.message.reply_text("Какая вовлечённость у вашего контента? (Например, '50 лайков, 10 комментариев') 📊")
         elif mode == "analytics" and stage == "engagement":
             logger.info("Этап engagement, генерация аналитики")
             user_data[user_id]["engagement"] = message
+            await update.message.reply_text("Генерирую для тебя аналитику... ⏳")
             response = generate_text(user_id, "analytics")
             hashtags = generate_hashtags(user_data[user_id]["topic"])
-            await update.message.reply_text(f"{response}\n\n{hashtags}", reply_markup=reply_markup)
+            await update.message.reply_text(f"Вот твоя аналитика! 📈\n{response}\n\n{hashtags}", reply_markup=reply_markup)
             del user_data[user_id]
     else:
         logger.info("Сообщение вне активной стадии")
-        await update.message.reply_text("Выбери действие из меню ниже!", reply_markup=reply_markup)
+        await update.message.reply_text("Выбери действие из меню ниже! 😊", reply_markup=reply_markup)
 
 async def handle_text(update: Update, context: ContextTypes):
     logger.info(f"Обработка текстового сообщения от {update.message.from_user.id}: {update.message.text}")
@@ -495,7 +506,7 @@ async def start(update: Update, context: ContextTypes):
     logger.info(f"Получена команда /start от user_id={update.message.from_user.id}")
     keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text("Привет! Я твой SMM-помощник. Выбери, что я сделаю для тебя:", reply_markup=reply_markup)
+    await update.message.reply_text("Привет! Я твой SMM-помощник 😎 Выбери, что я сделаю для тебя:", reply_markup=reply_markup)
 
 async def webhook(request):
     logger.info("Получен запрос на webhook")
@@ -539,6 +550,6 @@ async def main():
     return web_app
 
 if __name__ == "__main__":
-    logger.info("Запуск бота...")
+    logger.info("Запуск бота... 🚀")
     logger.info(f"Слушаю порт {PORT}")
     web.run_app(main(), host="0.0.0.0", port=PORT)
