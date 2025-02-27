@@ -122,14 +122,80 @@ def create_pdf(text, filename="strategy.pdf"):
         raise
 
 # Обработка сообщений (фрагмент для strategy)
+# Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes, is_voice=False):
-    # ... (начало функции без изменений)
+    user_id = update.message.from_user.id
+    logger.info(f"Начало обработки сообщения от user_id={user_id}, is_voice={is_voice}")
+    
+    try:
+        if is_voice:
+            message = await recognize_voice(f"voice_{update.message.message_id}.ogg")
+        else:
+            if not update.message.text:
+                logger.warning("Сообщение пустое")
+                await update.message.reply_text("Сообщение пустое. Напиши что-нибудь!")
+                return
+            message = update.message.text.strip().lower()
+        logger.info(f"Получено сообщение: {message}")
+    except Exception as e:
+        logger.error(f"Ошибка при получении сообщения: {e}", exc_info=True)
+        await update.message.reply_text("Не смог обработать сообщение. Попробуй ещё раз!")
+        return
+
+    keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+    if message == "пост":
+        user_data[user_id] = {"mode": "post", "stage": "topic"}
+        await update.message.reply_text("О чём написать пост? (Например, 'кофе')", reply_markup=reply_markup)
+        return
+    elif message == "сторис":
+        user_data[user_id] = {"mode": "story", "stage": "topic"}
+        await update.message.reply_text("О чём написать сторис? (Например, 'утро')", reply_markup=reply_markup)
+        return
+    elif message == "аналитика":
+        user_data[user_id] = {"mode": "analytics", "stage": "topic"}
+        await update.message.reply_text("Для чего аналитика? (Например, 'посты про кофе')", reply_markup=reply_markup)
+        return
+    elif message == "стратегия/контент-план":
+        user_data[user_id] = {"mode": "strategy", "stage": "client"}
+        await update.message.reply_text("Для кого стратегия? (Опиши аудиторию: возраст, профессия, боли)", reply_markup=reply_markup)
+        return
+    elif message == "хэштеги":
+        user_data[user_id] = {"mode": "hashtags", "stage": "topic"}
+        await update.message.reply_text("Для какой темы нужны хэштеги?", reply_markup=reply_markup)
+        return
+
     if user_id in user_data:
         mode = user_data[user_id]["mode"]
         stage = user_data[user_id]["stage"]
 
-        # ... (другие стадии без изменений)
-
+        if mode in ["post", "story", "image", "hashtags", "analytics"] and stage == "topic":
+            clean_topic = re.sub(r"^(о|про|для|об|на)\s+", "", message).strip()
+            user_data[user_id]["topic"] = clean_topic
+            if mode == "hashtags":
+                response = generate_text(user_id, "hashtags")
+                await update.message.reply_text(response, reply_markup=reply_markup)
+                del user_data[user_id]
+            elif mode == "analytics":
+                user_data[user_id]["stage"] = "reach"
+                await update.message.reply_text("Какой охват у вашего контента? (Например, 500 просмотров)", reply_markup=reply_markup)
+            else:
+                ideas = generate_ideas(clean_topic)
+                user_data[user_id]["stage"] = "ideas"
+                await update.message.reply_text(f"Вот идеи для '{clean_topic}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!", reply_markup=reply_markup)
+        elif mode in ["post", "story", "image"] and stage == "ideas":
+            if message.isdigit() and 1 <= int(message) <= 3:
+                idea_num = int(message)
+                ideas = generate_ideas(user_data[user_id]["topic"])
+                selected_idea = ideas[idea_num - 1].split(". ")[1]
+                user_data[user_id]["idea"] = selected_idea
+            else:
+                user_data[user_id]["idea"] = message
+            response = generate_text(user_id, mode)
+            hashtags = generate_hashtags(user_data[user_id]["topic"])
+            await update.message.reply_text(f"{response}\n\n{hashtags}", reply_markup=reply_markup)
+            del user_data[user_id]
         elif mode == "strategy" and stage == "client":
             logger.info("Этап client")
             user_data[user_id]["client"] = message
@@ -172,8 +238,51 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             except Exception as e:
                 logger.error(f"Ошибка при генерации стратегии или PDF: {e}", exc_info=True)
                 await update.message.reply_text("Не удалось сгенерировать стратегию. Попробуй ещё раз!", reply_markup=reply_markup)
-        # ... (остальные стадии без изменений)
-
+        elif mode == "strategy" and stage == "content_plan_offer":
+            if "да" in message:
+                logger.info("Пользователь хочет контент-план")
+                user_data[user_id]["stage"] = "frequency"
+                await update.message.reply_text("Как часто хотите выпускать посты и короткие видео? (Например, '2 поста и 3 видео в неделю')", reply_markup=reply_markup)
+            else:
+                logger.info("Пользователь отказался от контент-плана")
+                del user_data[user_id]
+                await update.message.reply_text("Выбери новое действие из меню ниже!", reply_markup=reply_markup)
+        elif mode == "content_plan" and stage == "frequency":
+            logger.info("Этап frequency, генерация контент-плана")
+            user_data[user_id]["frequency"] = message
+            response = generate_text(user_id, "content_plan")
+            hashtags = generate_hashtags(user_data[user_id]["topic"])
+            topic = user_data[user_id]["topic"]
+            try:
+                pdf_file = create_pdf(response)
+                with open(pdf_file, 'rb') as f:
+                    await context.bot.send_document(
+                        chat_id=update.message.chat_id,
+                        document=f,
+                        filename=f"Контент-план_{topic}.pdf",
+                        caption=f"Вот твой контент-план в PDF!\n\n{hashtags}",
+                        reply_markup=reply_markup
+                    )
+                os.remove(pdf_file)
+                logger.info(f"Контент-план успешно отправлен как PDF для user_id={user_id}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки контент-плана как PDF: {e}", exc_info=True)
+                await update.message.reply_text("Не удалось отправить контент-план как PDF. Попробуй ещё раз!", reply_markup=reply_markup)
+            del user_data[user_id]
+        elif mode == "analytics" and stage == "reach":
+            logger.info("Этап reach")
+            user_data[user_id]["reach"] = message
+            user_data[user_id]["stage"] = "engagement"
+            await update.message.reply_text("Какая вовлечённость у вашего контента? (Например, 50 лайков, 10 комментариев)", reply_markup=reply_markup)
+        elif mode == "analytics" and stage == "engagement":
+            logger.info("Этап engagement, генерация аналитики")
+            user_data[user_id]["engagement"] = message
+            response = generate_text(user_id, "analytics")
+            hashtags = generate_hashtags(user_data[user_id]["topic"])
+            await update.message.reply_text(f"{response}\n\n{hashtags}", reply_markup=reply_markup)
+            del user_data[user_id]
+    else:
+        await update.message.reply_text("Выбери действие из меню ниже!", reply_markup=reply_markup)
 # Генерация изображения через Hugging Face
 def generate_image(prompt):
     headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
