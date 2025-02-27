@@ -40,7 +40,9 @@ user_data = {}
 async def error_handler(update: Update, context: ContextTypes):
     logger.error(f"Произошла ошибка: {context.error}", exc_info=True)
     if update and update.message:
-        await update.message.reply_text("Что-то пошло не так. Попробуй ещё раз!")
+        keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text("Что-то пошло не так. Попробуй ещё раз!", reply_markup=reply_markup)
 
 def correct_text(text):
     payload = {"text": text, "language": "ru"}
@@ -105,7 +107,10 @@ def generate_ideas(topic):
         f"Ты креативный SMM-специалист. Придумай ровно 3 уникальные идеи для постов или сторис на тему '{topic}' "
         f"для социальных сетей. Идеи должны быть свежими, интересными и побуждать к действию. "
         f"Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, категорически запрещено использовать английские или любые иностранные слова. "
-        f"Каждая идея — одна строка, без лишнего текста и без нумерации."
+        f"Каждая идея — одна строка, без лишнего текста и без нумерации. Примеры: "
+        f"Покажи свой лучший прыжок на тренировке и получи скидку на абонемент "
+        f"Расскажи историю о том как бег изменил твою жизнь "
+        f"Запусти челлендж кто пробежит больше за неделю"
     )
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
     payload = {
@@ -228,7 +233,7 @@ def generate_text(user_id, mode):
         "max_tokens": 3000,
         "temperature": 0.5
     }
-    timeout = 60 if mode == "strategy" else 30  # Увеличиваем таймаут для стратегии
+    timeout = 60 if mode == "strategy" else 30
     for attempt in range(3):
         try:
             response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=timeout)
@@ -274,11 +279,13 @@ def generate_hashtags(topic):
     thematic_hashtags = {
         "вред_алкоголя": ["#вредалкоголя", "#здоровье", "#трезвость", "#жизньбезалкоголя", "#опасность", "#алкоголь"],
         "бег": ["#бег", "#утреннийбег", "#спорт", "#фитнес", "#здоровье", "#мотивация"],
+        "баскетбол": ["#баскетбол", "#спорт", "#игра", "#команда", "#тренировки", "#фитнес"],
         "спортклуб": ["#фитнес", "#спорт", "#тренировки", "#здоровье", "#мотивация", "#сила"],
         "кофе": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
-        "кофе_утом": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
+        "кофе_утром": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток", "#релакс"],
         "ночной_клуб": ["#ночнойклуб", "#вечеринка", "#танцы", "#музыка", "#отдых", "#тусовка"],
-        "фитнес_клуба": ["#фитнес", "#спорт", "#тренировки", "#здоровье", "#мотивация", "#сила"]
+        "фитнес_клуба": ["#фитнес", "#спорт", "#тренировки", "#здоровье", "#мотивация", "#сила"],
+        "барбершоп": ["#барбершоп", "#стрижка", "#уход", "#стиль", "#мужчины", "#красота"]
     }
     relevant_tags = []
     topic_key = topic.lower()
@@ -301,13 +308,17 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         else:
             if not update.message.text:
                 logger.warning("Сообщение пустое")
-                await update.message.reply_text("Сообщение пустое. Напиши что-нибудь!")
+                keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"]]
+                reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+                await update.message.reply_text("Сообщение пустое. Напиши что-нибудь!", reply_markup=reply_markup)
                 return
             message = update.message.text.strip().lower()
         logger.info(f"Получено сообщение: {message}")
     except Exception as e:
         logger.error(f"Ошибка при получении сообщения: {e}", exc_info=True)
-        await update.message.reply_text("Не смог обработать сообщение. Попробуй ещё раз!")
+        keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text("Не смог обработать сообщение. Попробуй ещё раз!", reply_markup=reply_markup)
         return
 
     keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"]]
@@ -317,23 +328,23 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
 
     if message == "пост":
         user_data[user_id] = {"mode": "post", "stage": "topic"}
-        await update.message.reply_text("О чём написать пост? (Например, 'кофе')", reply_markup=reply_markup)
+        await update.message.reply_text("О чём написать пост? (Например, 'кофе')")
         return
     elif message == "сторис":
         user_data[user_id] = {"mode": "story", "stage": "topic"}
-        await update.message.reply_text("О чём написать сторис? (Например, 'утро')", reply_markup=reply_markup)
+        await update.message.reply_text("О чём написать сторис? (Например, 'утро')")
         return
     elif message == "аналитика":
         user_data[user_id] = {"mode": "analytics", "stage": "topic"}
-        await update.message.reply_text("Для чего аналитика? (Например, 'посты про кофе')", reply_markup=reply_markup)
+        await update.message.reply_text("Для чего аналитика? (Например, 'посты про кофе')")
         return
     elif message == "стратегия/контент-план":
-        user_data[user_id] = {"mode": "strategy", "stage": "client"}
-        await update.message.reply_text("Для кого стратегия? (Опиши аудиторию: возраст, профессия, боли)", reply_markup=reply_markup)
+        user_data[user_id] = {"mode": "strategy", "stage": "topic"}
+        await update.message.reply_text("О чём стратегия? (Например, 'фитнес клуб')")
         return
     elif message == "хэштеги":
         user_data[user_id] = {"mode": "hashtags", "stage": "topic"}
-        await update.message.reply_text("Для какой темы нужны хэштеги?", reply_markup=reply_markup)
+        await update.message.reply_text("Для какой темы нужны хэштеги?")
         return
 
     if user_id in user_data and "mode" in user_data[user_id] and "stage" in user_data[user_id]:
@@ -341,7 +352,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         stage = user_data[user_id]["stage"]
         logger.info(f"Текущая стадия: mode={mode}, stage={stage}")
 
-        if mode in ["post", "story", "hashtags", "analytics"] and stage == "topic":
+        if stage == "topic":
             clean_topic = re.sub(r"^(о|про|для|об|на)\s+", "", message).strip().replace(" ", "_")
             user_data[user_id]["topic"] = clean_topic
             logger.info(f"Тема очищена: {clean_topic}")
@@ -351,16 +362,19 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 del user_data[user_id]
             elif mode == "analytics":
                 user_data[user_id]["stage"] = "reach"
-                await update.message.reply_text("Какой охват у вашего контента? (Например, 500 просмотров)", reply_markup=reply_markup)
-            else:
+                await update.message.reply_text("Какой охват у вашего контента? (Например, '500 просмотров')")
+            elif mode in ["post", "story"]:
                 user_data[user_id]["stage"] = "style"
-                await update.message.reply_text("Какой стиль текста? Выбери:", reply_markup=style_reply_markup)
+                await update.message.reply_text("Какой стиль текста? Выбери: формальный, дружелюбный, саркастичный")
+            elif mode == "strategy":
+                user_data[user_id]["stage"] = "client"
+                await update.message.reply_text("Для кого стратегия? (Опиши аудиторию: возраст, профессия, боли)")
         elif mode in ["post", "story"] and stage == "style":
             logger.info(f"Выбран стиль: {message}")
             user_data[user_id]["style"] = message
             ideas = generate_ideas(user_data[user_id]["topic"])
             user_data[user_id]["stage"] = "ideas"
-            await update.message.reply_text(f"Вот идеи для '{user_data[user_id]['topic'].replace('_', ' ')}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!", reply_markup=reply_markup)
+            await update.message.reply_text(f"Вот идеи для '{user_data[user_id]['topic'].replace('_', ' ')}':\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3...) или напиши свою!")
         elif mode in ["post", "story"] and stage == "ideas":
             logger.info(f"Выбор идеи: {message}")
             if message.isdigit() and 1 <= int(message) <= 3:
@@ -378,12 +392,12 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             logger.info("Этап client")
             user_data[user_id]["client"] = message
             user_data[user_id]["stage"] = "channels"
-            await update.message.reply_text("Какие каналы вы хотите использовать для привлечения? (Соцсети, реклама, содержание)", reply_markup=reply_markup)
+            await update.message.reply_text("Какие каналы вы хотите использовать для привлечения? (Соцсети, реклама, содержание)")
         elif mode == "strategy" and stage == "channels":
             logger.info("Этап channels")
             user_data[user_id]["channels"] = message
             user_data[user_id]["stage"] = "result"
-            await update.message.reply_text("Какой главный результат вы хотите получить? (Прибыль, клиенты, узнаваемость)", reply_markup=reply_markup)
+            await update.message.reply_text("Какой главный результат вы хотите получить? (Прибыль, клиенты, узнаваемость)")
         elif mode == "strategy" and stage == "result":
             logger.info("Этап result, генерация стратегии")
             user_data[user_id]["result"] = message
@@ -416,11 +430,11 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             if "да" in message:
                 logger.info("Пользователь хочет контент-план")
                 user_data[user_id]["stage"] = "frequency"
-                await update.message.reply_text("Как часто хотите выпускать посты и короткие видео? (Например, '2 поста и 3 видео в неделю')", reply_markup=reply_markup)
+                await update.message.reply_text("Как часто хотите выпускать посты и короткие видео? (Например, '2 поста и 3 видео в неделю')")
             else:
                 logger.info("Пользователь отказался от контент-плана")
+                await update.message.reply_text("Выбери новое действие!", reply_markup=reply_markup)
                 del user_data[user_id]
-                await update.message.reply_text("Выбери новое действие из меню ниже!", reply_markup=reply_markup)
         elif mode == "content_plan" and stage == "frequency":
             logger.info("Этап frequency, генерация контент-плана")
             user_data[user_id]["frequency"] = message
@@ -447,7 +461,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             logger.info("Этап reach")
             user_data[user_id]["reach"] = message
             user_data[user_id]["stage"] = "engagement"
-            await update.message.reply_text("Какая вовлечённость у вашего контента? (Например, 50 лайков, 10 комментариев)", reply_markup=reply_markup)
+            await update.message.reply_text("Какая вовлечённость у вашего контента? (Например, '50 лайков, 10 комментариев')")
         elif mode == "analytics" and stage == "engagement":
             logger.info("Этап engagement, генерация аналитики")
             user_data[user_id]["engagement"] = message
