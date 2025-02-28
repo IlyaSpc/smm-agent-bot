@@ -1,4 +1,3 @@
-
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import requests
@@ -280,20 +279,28 @@ def generate_text(user_id, mode):
                 f"3) Краткое описание (2-3 предложения) с идеей, связанной с '{topic}'. 4) Цель (привлечение, прогрев, продажа). "
                 f"Распредели контент равномерно согласно частоте публикаций. Пиши только текст плана."
             )
-      elif mode == "analytics" and stage == "reach":
-    logger.info(f"Проверка охвата: сообщение='{message}'")
-    if "просмотр" in message.lower() or message.isdigit():
-        logger.info("Условие охвата выполнено")
-        user_data[user_id]["reach"] = message if "просмотр" in message.lower() else f"{message} просмотров"
-        logger.info(f"Установлен reach: {user_data[user_id]['reach']}")
-        user_data[user_id]["stage"] = "engagement"
-        logger.info("Стадия изменена на engagement")
-        await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, какая вовлечённость у вашего контента? (Например, '50 лайков, 10 комментариев') 📊")
-        logger.info("Сообщение об вовлечённости отправлено")
-    else:
-        await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, укажи охват цифрами или с 'просмотров' (например, '500 просмотров') 📈")
-        logger.info("Сообщение об ошибке охвата отправлено")
-
+        elif mode == "analytics":
+            reach = user_data[user_id].get("reach", "не указано")
+            engagement = user_data[user_id].get("engagement", "не указано")
+            try:
+                pytrends = TrendReq(hl='ru-RU', tz=360)
+                pytrends.build_payload([topic.replace('_', ' ')], cat=0, timeframe='today 3-m', geo='RU')
+                trends_data = pytrends.interest_over_time()
+                trend_info = f"Тренд за 3 месяца: интерес к '{topic.replace('_', ' ')}' в России {'растёт' if not trends_data.empty and trends_data[topic.replace('_', ' ')].iloc[-1] > trends_data[topic.replace('_', ' ')].iloc[0] else 'падает или стабилен'}." if not trends_data.empty else "Нет данных о трендах."
+            except Exception as e:
+                logger.error(f"Ошибка pytrends: {e}")
+                trend_info = "Нет данных о трендах из-за технической ошибки."
+            full_prompt = (
+                f"Ты SMM-специалист с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
+                f"Составь краткий анализ на русском языке по теме '{topic.replace('_', ' ')}' для социальных сетей. "
+                f"Охват: {reach}. Вовлечённость: {engagement}, сохраняй формат как 'X лайков, Y комментариев'. Данные Google Trends: {trend_info}. "
+                f"Контекст из книг: '{BOOK_CONTEXT[:1000]}'. "
+                f"Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, без иностранных слов. "
+                f"Стиль: дружелюбный, ясный, с позитивом и советами, без штампов. "
+                f"Структура: оцени охват и вовлечённость с примерами, дай 2-3 вывода, предложи 1-2 совета по улучшению. Пиши только текст анализа."
+            )
+        elif mode == "hashtags":
+            return generate_hashtags(topic)
 
     logger.info(f"Отправка запроса к Together AI для {mode}")
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
@@ -539,15 +546,24 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             os.remove(pdf_file)
             del user_data[user_id]
         elif mode == "analytics" and stage == "reach":
+            logger.info(f"Проверка охвата: сообщение='{message}'")
             if "просмотр" in message.lower() or message.isdigit():
+                logger.info("Условие охвата выполнено")
                 user_data[user_id]["reach"] = message if "просмотр" in message.lower() else f"{message} просмотров"
+                logger.info(f"Установлен reach: {user_data[user_id]['reach']}")
                 user_data[user_id]["stage"] = "engagement"
+                logger.info("Стадия изменена на engagement")
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, какая вовлечённость у вашего контента? (Например, '50 лайков, 10 комментариев') 📊")
+                logger.info("Сообщение об вовлечённости отправлено")
             else:
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, укажи охват цифрами или с 'просмотров' (например, '500 просмотров') 📈")
+                logger.info("Сообщение об ошибке охвата отправлено")
         elif mode == "analytics" and stage == "engagement":
+            logger.info(f"Проверка вовлечённости: сообщение='{message}'")
             if re.match(r'^\d+\s+лайков,\s*\d+\s+комментариев$', message):
+                logger.info("Условие вовлечённости выполнено")
                 user_data[user_id]["engagement"] = message
+                logger.info(f"Установлена engagement: {user_data[user_id]['engagement']}")
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, генерирую для тебя аналитику... ⏳")
                 response = generate_text(user_id, "analytics")
                 hashtags = generate_hashtags(user_data[user_id]["topic"])
@@ -558,6 +574,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 del user_data[user_id]
             else:
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, укажи вовлечённость в формате 'X лайков, Y комментариев' (например, '50 лайков, 10 комментариев') 📊")
+                logger.info("Сообщение об ошибке вовлечённости отправлено")
     else:
         if message == "пост":
             user_data[user_id] = {"mode": "post", "stage": "topic"}
@@ -649,4 +666,5 @@ if __name__ == "__main__":
         logger.info("Бот запущен локально")
     logger.info(f"Слушаю порт {PORT}")
     web.run_app(main(), host="0.0.0.0", port=PORT)
+
 
