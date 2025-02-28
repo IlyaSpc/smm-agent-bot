@@ -1,3 +1,4 @@
+
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import requests
@@ -558,37 +559,36 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             else:
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, укажи охват цифрами или с 'просмотров' (например, '500 просмотров') 📈")
                 logger.info("Сообщение об ошибке охвата отправлено")
-      
-       elif mode == "analytics" and stage == "engagement":
-    logger.info(f"Проверка вовлечённости: сообщение='{message}'")
-    if re.match(r'^\d+\s+лайков,\s*\d+\s+комментариев$', message):
-        logger.info("Условие вовлечённости выполнено (полный формат)")
-        user_data[user_id]["engagement"] = message
-        logger.info(f"Установлена engagement: {user_data[user_id]['engagement']}")
-        await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, генерирую для тебя аналитику... ⏳")
-        response = generate_text(user_id, "analytics")
-        hashtags = generate_hashtags(user_data[user_id]["topic"])
-        reply_markup = ReplyKeyboardMarkup(edit_keyboard if user_id in user_data and "last_result" in user_data[user_id] else base_keyboard, resize_keyboard=True)
-        await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твоя аналитика! 📈\n{response}\n\n{hashtags}", reply_markup=reply_markup)
-        user_stats[user_id]["analytics"] += 1
-        await save_data()
-        del user_data[user_id]
-    elif re.match(r'^\d+\s+\d+$', message):
-        logger.info("Условие вовлечённости выполнено (сокращённый формат)")
-        likes, comments = map(int, message.split())
-        user_data[user_id]["engagement"] = f"{likes} лайков, {comments} комментариев"
-        logger.info(f"Установлена engagement: {user_data[user_id]['engagement']}")
-        await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, генерирую для тебя аналитику... ⏳")
-        response = generate_text(user_id, "analytics")
-        hashtags = generate_hashtags(user_data[user_id]["topic"])
-        reply_markup = ReplyKeyboardMarkup(edit_keyboard if user_id in user_data and "last_result" in user_data[user_id] else base_keyboard, resize_keyboard=True)
-        await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твоя аналитика! 📈\n{response}\n\n{hashtags}", reply_markup=reply_markup)
-        user_stats[user_id]["analytics"] += 1
-        await save_data()
-        del user_data[user_id]
-    else:
-        await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, укажи вовлечённость в формате 'X лайков, Y комментариев' или 'X Y' (например, '50 лайков, 10 комментариев' или '50 10') 📊")
-        logger.info("Сообщение об ошибке вовлечённости отправлено")
+        elif mode == "analytics" and stage == "engagement":
+            logger.info(f"Проверка вовлечённости: сообщение='{message}'")
+            if re.match(r'^\d+\s+лайков,\s*\d+\s+комментариев$', message):
+                logger.info("Условие вовлечённости выполнено (полный формат)")
+                user_data[user_id]["engagement"] = message
+                logger.info(f"Установлена engagement: {user_data[user_id]['engagement']}")
+                await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, генерирую для тебя аналитику... ⏳")
+                response = generate_text(user_id, "analytics")
+                hashtags = generate_hashtags(user_data[user_id]["topic"])
+                reply_markup = ReplyKeyboardMarkup(edit_keyboard if user_id in user_data and "last_result" in user_data[user_id] else base_keyboard, resize_keyboard=True)
+                await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твоя аналитика! 📈\n{response}\n\n{hashtags}", reply_markup=reply_markup)
+                user_stats[user_id]["analytics"] += 1
+                await save_data()
+                del user_data[user_id]
+            elif re.match(r'^\d+\s+\d+$', message):
+                logger.info("Условие вовлечённости выполнено (сокращённый формат)")
+                likes, comments = map(int, message.split())
+                user_data[user_id]["engagement"] = f"{likes} лайков, {comments} комментариев"
+                logger.info(f"Установлена engagement: {user_data[user_id]['engagement']}")
+                await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, генерирую для тебя аналитику... ⏳")
+                response = generate_text(user_id, "analytics")
+                hashtags = generate_hashtags(user_data[user_id]["topic"])
+                reply_markup = ReplyKeyboardMarkup(edit_keyboard if user_id in user_data and "last_result" in user_data[user_id] else base_keyboard, resize_keyboard=True)
+                await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твоя аналитика! 📈\n{response}\n\n{hashtags}", reply_markup=reply_markup)
+                user_stats[user_id]["analytics"] += 1
+                await save_data()
+                del user_data[user_id]
+            else:
+                await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, укажи вовлечённость в формате 'X лайков, Y комментариев' или 'X Y' (например, '50 лайков, 10 комментариев' или '50 10') 📊")
+                logger.info("Сообщение об ошибке вовлечённости отправлено")
     else:
         if message == "пост":
             user_data[user_id] = {"mode": "post", "stage": "topic"}
@@ -680,5 +680,4 @@ if __name__ == "__main__":
         logger.info("Бот запущен локально")
     logger.info(f"Слушаю порт {PORT}")
     web.run_app(main(), host="0.0.0.0", port=PORT)
-
 
