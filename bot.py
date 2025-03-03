@@ -148,7 +148,7 @@ def generate_ideas(topic, style="саркастичный", user_id=None):
         trend_info = f"Тренд за 3 месяца: интерес к '{topic}' в России {'растёт' if not trends_data.empty and trends_data[topic.replace('_', ' ')].iloc[-1] > trends_data[topic.replace('_', ' ')].iloc[0] else 'падает или стабилен'}." if not trends_data.empty else "Нет данных о трендах."
     except Exception as e:
         logger.error(f"Ошибка pytrends в generate_ideas: {e}")
-        trend_info = "Тренды недоступны."
+        trend_info = "Тренды недоступны из-за лимита запросов."
 
     prompt = (
         f"Ты креативный SMM-специалист. Придумай ровно 3 уникальные идеи для постов или сторис на тему '{topic}' "
@@ -180,6 +180,8 @@ def generate_ideas(topic, style="саркастичный", user_id=None):
                 logger.info("Успешная генерация идей")
                 raw_text = response.json()["choices"][0]["message"]["content"].strip()
                 ideas = [correct_text(line.strip()) for line in raw_text.split("\n") if line.strip()]
+                # Убираем нумерацию из текста идей
+                ideas = [re.sub(r'^\d+\.\s*', '', idea) for idea in ideas]
                 filtered_ideas.extend([idea for idea in ideas if len(idea.split()) >= 5 and not any(phrase in idea.lower() for phrase in forbidden_phrases)])
             else:
                 logger.error(f"Ошибка Together AI: {response.status_code} - {response.text}")
@@ -325,7 +327,7 @@ def generate_text(user_id, mode):
                 trend_info = f"Тренд за 3 месяца: интерес к '{topic.replace('_', ' ')}' в России {'растёт' if not trends_data.empty and trends_data[topic.replace('_', ' ')].iloc[-1] > trends_data[topic.replace('_', ' ')].iloc[0] else 'падает или стабилен'}." if not trends_data.empty else "Нет данных о трендах."
             except Exception as e:
                 logger.error(f"Ошибка pytrends: {e}")
-                trend_info = "Нет данных о трендах из-за технической ошибки."
+                trend_info = "Нет данных о трендах из-за лимита запросов."
             full_prompt = (
                 f"Ты SMM-специалист с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
                 f"Составь краткий анализ на русском языке по теме '{topic.replace('_', ' ')}' для социальных сетей. "
@@ -357,8 +359,9 @@ def generate_text(user_id, mode):
                 if lang == "ru" and re.search(r'[^\u0400-\u04FF\s\d.,!?():;-]', corrected_text):
                     logger.warning(f"Обнаружены не-русские символы, заменяю...")
                     corrected_text = re.sub(r'[^\u0400-\u04FF\s\d.,!?():;-]', '', corrected_text)
-                if not re.search(r'[а-яё]+\s+[а-яё]+', corrected_text):  # Проверка на осмысленность
-                    logger.warning("Текст не осмыслен, пробуем ещё раз")
+                # Усиленная проверка на осмысленность и завершенность
+                if not (re.search(r'[а-яё]+\s+[а-яё]+', corrected_text) and corrected_text.count('.') >= (3 if mode == "post" else 2) and not corrected_text.endswith('.')):
+                    logger.warning("Текст недостаточно осмыслен или оборван, пробуем ещё раз")
                     continue
                 return corrected_text
             else:
