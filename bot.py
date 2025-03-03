@@ -149,11 +149,17 @@ def generate_ideas(topic, style="саркастичный"):
         if response.status_code == 200:
             logger.info("Успешная генерация идей")
             raw_text = response.json()["choices"][0]["message"]["content"].strip()
-            ideas = [correct_text(line.strip()) for line in raw_text.split("\n") if line.strip() and not any(phrase in line.lower() for phrase in ["ты получил", "вот три", "идея для", "here are", "ideas for", "саркастичный стиль", "дружелюбный стиль", "формальный стиль", "следующие идеи", "тема", "идеи для"])]
+            ideas = [correct_text(line.strip()) for line in raw_text.split("\n") if line.strip()]
             filtered_ideas = [idea for idea in ideas if len(idea.split()) >= 5 and topic.replace('_', ' ') in idea.lower()]
             if len(filtered_ideas) < 3:
-                logger.warning(f"Модель не дала 3 идеи для '{topic}', повторяем запрос")
-                return generate_ideas(topic, style)
+                logger.warning(f"Модель дала только {len(filtered_ideas)} идей для '{topic}', дополняем запасными")
+                fallback_ideas = [
+                    f"Попробуй {topic} сегодня и расскажи друзьям о своих впечатлениях прямо сейчас!",
+                    f"Освой {topic} с нами и поделись своим опытом в комментариях ниже!",
+                    f"Погрузись в {topic} полностью и покажи всем, как это круто выглядит!"
+                ]
+                while len(filtered_ideas) < 3:
+                    filtered_ideas.append(fallback_ideas[len(filtered_ideas)])
             return [f"{i+1}. {idea}" for i, idea in enumerate(filtered_ideas[:3])]
         else:
             logger.error(f"Ошибка Together AI: {response.status_code} - {response.text}")
@@ -398,6 +404,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             user_names[user_id] = message.capitalize()
             del user_data[user_id]
             await save_data()
+            reply_markup = ReplyKeyboardMarkup(base_keyboard, resize_keyboard=True)
             await update.message.reply_text(f"Отлично, {user_names[user_id]}! Теперь я знаю, как к тебе обращаться 😊 Выбери, что я сделаю для тебя:", reply_markup=reply_markup)
             return
         elif mode == "lang" and stage == "choose_lang":
