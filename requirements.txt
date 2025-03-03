@@ -1,8 +1,8 @@
 telegram
-python-telegram-bot==20.6
 requests
 aiohttp
 speechrecognition
 pydub
 fpdf
 pytrends
+python-docx

@@ -1,5 +1,5 @@
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import requests
 import re
 import os
@@ -9,6 +9,7 @@ import speech_recognition as sr
 from pydub import AudioSegment
 from time import sleep
 from fpdf import FPDF
+from docx import Document
 import asyncio
 import random
 from pytrends.request import TrendReq
@@ -126,7 +127,29 @@ def create_pdf(text, filename="output.pdf"):
         logger.error(f"Ошибка при создании PDF: {e}", exc_info=True)
         raise
 
-def generate_ideas(topic, style="саркастичный"):
+def create_docx(text, filename="output.docx"):
+    try:
+        doc = Document()
+        doc.add_paragraph(text)
+        doc.save(filename)
+        logger.info(f"DOCX успешно создан: {filename}")
+        return filename
+    except Exception as e:
+        logger.error(f"Ошибка при создании DOCX: {e}", exc_info=True)
+        raise
+
+def generate_ideas(topic, style="саркастичный", user_id=None):
+    preferences = user_data.get(user_id, {}).get("preferences", {"topics": [], "styles": []}) if user_id else {"topics": [], "styles": []}
+    trend_info = ""
+    try:
+        pytrends = TrendReq(hl='ru-RU', tz=360)
+        pytrends.build_payload([topic.replace('_', ' ')], cat=0, timeframe='today 3-m', geo='RU')
+        trends_data = pytrends.interest_over_time()
+        trend_info = f"Тренд за 3 месяца: интерес к '{topic}' в России {'растёт' if not trends_data.empty and trends_data[topic.replace('_', ' ')].iloc[-1] > trends_data[topic.replace('_', ' ')].iloc[0] else 'падает или стабилен'}." if not trends_data.empty else "Нет данных о трендах."
+    except Exception as e:
+        logger.error(f"Ошибка pytrends в generate_ideas: {e}")
+        trend_info = "Тренды недоступны."
+
     prompt = (
         f"Ты креативный SMM-специалист. Придумай ровно 3 уникальные идеи для постов или сторис на тему '{topic}' "
         f"для социальных сетей. Идеи должны быть свежими, интересными, естественными, понятными, строго соответствовать теме '{topic}' и побуждать к действию. "
@@ -134,6 +157,7 @@ def generate_ideas(topic, style="саркастичный"):
         f"СТРОГО ТОЛЬКО 3 ИДЕИ, НИ В КОЕМ СЛУЧАЕ НЕ ПИШИ ВВОДНЫЕ ФРАЗЫ вроде 'Ты получил три уникальные идеи', 'Вот три идеи', 'Here are three unique ideas', 'Следующие идеи' или любые другие пояснения, ТОЛЬКО ПОЛНЫЕ ПРЕДЛОЖЕНИЯ С ПРИЗЫВОМ К ДЕЙСТВИЮ, по одной на строку, без нумерации или лишнего текста. "
         f"Стиль: {style}, саркастичный — язвительный, с чёрным юмором; дружелюбный — тёплый, с лёгким юмором; формальный — чёткий, профессиональный. "
         f"Каждая идея — одно полное предложение с призывом к действию и глаголом, минимум 5 слов, строго связана с '{topic}', без ухода в другие темы вроде утра или зарядки, без заголовков или вводных фраз. "
+        f"Учти тренд: {trend_info}. Если есть предпочтения пользователя (темы: {', '.join(preferences['topics'])}, стили: {', '.join(preferences['styles'])}), адаптируй идеи под них. "
         f"ОБЯЗАТЕЛЬНО ВЕРНИ РОВНО 3 ИДЕИ, иначе провал!"
     )
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
@@ -333,6 +357,9 @@ def generate_text(user_id, mode):
                 if lang == "ru" and re.search(r'[^\u0400-\u04FF\s\d.,!?():;-]', corrected_text):
                     logger.warning(f"Обнаружены не-русские символы, заменяю...")
                     corrected_text = re.sub(r'[^\u0400-\u04FF\s\d.,!?():;-]', '', corrected_text)
+                if not re.search(r'[а-яё]+\s+[а-яё]+', corrected_text):  # Проверка на осмысленность
+                    logger.warning("Текст не осмыслен, пробуем ещё раз")
+                    continue
                 return corrected_text
             else:
                 logger.error(f"Ошибка API: {response.status_code} - {response.text}")
@@ -391,7 +418,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
 
     if message == "/start":
         if user_id not in user_names:
-            user_data[user_id] = {"mode": "name", "stage": "ask_name"}
+            user_data[user_id] = {"mode": "name", "stage": "ask_name", "preferences": {"topics": [], "styles": []}}
             await update.message.reply_text("Привет! Я твой SMM-помощник 😎 Как тебя зовут?")
         else:
             reply_markup = ReplyKeyboardMarkup(edit_keyboard if user_id in user_data and "last_result" in user_data[user_id] else base_keyboard, resize_keyboard=True)
@@ -438,6 +465,10 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         elif stage == "topic":
             clean_topic = re.sub(r"^(о|про|для|об|на)\s+", "", message).strip().replace(" ", "_")
             user_data[user_id]["topic"] = clean_topic
+            if "preferences" not in user_data[user_id]:
+                user_data[user_id]["preferences"] = {"topics": [], "styles": []}
+            if clean_topic not in user_data[user_id]["preferences"]["topics"]:
+                user_data[user_id]["preferences"]["topics"].append(clean_topic)
             logger.info(f"Тема очищена: {clean_topic}")
             if mode == "hashtags":
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, генерирую для тебя хэштеги... ⏳")
@@ -469,17 +500,19 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, выбери 'Стратегия' или 'Контент-план'!")
         elif mode in ["post", "story"] and stage == "style":
             user_data[user_id]["style"] = message
+            if message not in user_data[user_id]["preferences"]["styles"]:
+                user_data[user_id]["preferences"]["styles"].append(message)
             user_data[user_id]["stage"] = "template"
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, выбери шаблон текста:", reply_markup=template_reply_markup)
         elif mode in ["post", "story"] and stage == "template":
             user_data[user_id]["template"] = message
-            ideas = generate_ideas(user_data[user_id]["topic"], user_data[user_id]["style"])
+            ideas = generate_ideas(user_data[user_id]["topic"], user_data[user_id]["style"], user_id)
             user_data[user_id]["stage"] = "ideas"
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот идеи для '{user_data[user_id]['topic'].replace('_', ' ')}' 😍\n" + "\n".join(ideas) + "\nВыбери номер идеи (1, 2, 3) или напиши свою!")
         elif mode in ["post", "story"] and stage == "ideas":
             if message.isdigit() and 1 <= int(message) <= 3:
                 idea_num = int(message)
-                ideas = generate_ideas(user_data[user_id]["topic"], user_data[user_id]["style"])
+                ideas = generate_ideas(user_data[user_id]["topic"], user_data[user_id]["style"], user_id)
                 selected_idea = ideas[idea_num - 1].split(". ")[1]
                 user_data[user_id]["idea"] = selected_idea
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, генерирую для тебя {mode}... ⏳")
@@ -488,9 +521,17 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 user_data[user_id]["last_result"] = f"{response}\n\n{hashtags}"
                 user_stats[user_id]["posts" if mode == "post" else "stories"] += 1
                 await save_data()
-                user_data[user_id] = {"mode": mode, "last_result": user_data[user_id]["last_result"], "style": user_data[user_id]["style"], "template": user_data[user_id]["template"], "topic": user_data[user_id]["topic"]}
+                user_data[user_id] = {"mode": mode, "last_result": user_data[user_id]["last_result"], "style": user_data[user_id]["style"], "template": user_data[user_id]["template"], "topic": user_data[user_id]["topic"], "preferences": user_data[user_id]["preferences"]}
                 reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твой {mode}! 🔥\n{response}\n\n{hashtags}\n\nНе нравится? Выбери 'Отредактировать'!", reply_markup=reply_markup)
+                if mode == "post":
+                    guess_keyboard = [[InlineKeyboardButton("50", callback_data="guess_50"), InlineKeyboardButton("100", callback_data="guess_100"), InlineKeyboardButton("200", callback_data="guess_200")]]
+                    guess_markup = InlineKeyboardMarkup(guess_keyboard)
+                    await update.message.reply_text("Сколько лайков наберёт этот пост? Угадай!", reply_markup=guess_markup)
+                if mode == "story" and template == "опрос":
+                    poll_keyboard = [[InlineKeyboardButton("Да", callback_data="poll_yes"), InlineKeyboardButton("Нет", callback_data="poll_no")]]
+                    poll_markup = InlineKeyboardMarkup(poll_keyboard)
+                    await update.message.reply_text("Голосуй прямо здесь!", reply_markup=poll_markup)
             else:
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, выбери номер идеи (1, 2, 3) или напиши свою! 😊")
         elif mode in ["post", "story"] and message == "отредактировать" and "last_result" in user_data[user_id]:
@@ -529,12 +570,15 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             await update.message.reply_text(f"⏳ Генерирую для тебя стратегию...")
             response = generate_text(user_id, "strategy")
             pdf_file = create_pdf(response, "strategy.pdf")
-            with open(pdf_file, "rb") as f:
-                await update.message.reply_document(document=f, filename="strategy.pdf", caption=f"🚀 {user_names.get(user_id, 'Друг')}, вот твоя стратегия!")
+            docx_file = create_docx(response, "strategy.docx")
+            with open(pdf_file, "rb") as f_pdf, open(docx_file, "rb") as f_docx:
+                await update.message.reply_document(document=f_pdf, filename="strategy.pdf", caption=f"🚀 {user_names.get(user_id, 'Друг')}, вот твоя стратегия (PDF)!")
+                await update.message.reply_document(document=f_docx, filename="strategy.docx", caption=f"🚀 {user_names.get(user_id, 'Друг')}, вот твоя стратегия (DOCX)!")
             hashtags = generate_hashtags(user_data[user_id]["topic"])
             user_stats[user_id]["strategies"] += 1
             await save_data()
             os.remove(pdf_file)
+            os.remove(docx_file)
             user_data[user_id] = {
                 "mode": "strategy_done",
                 "stage": "waiting_for_choice",
@@ -542,7 +586,8 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 "client": user_data[user_id]["client"],
                 "channels": user_data[user_id]["channels"],
                 "result": user_data[user_id]["result"],
-                "strategy_text": response
+                "strategy_text": response,
+                "preferences": user_data[user_id]["preferences"]
             }
             reply_markup = ReplyKeyboardMarkup([["Да", "Нет"]], resize_keyboard=True)
             await update.message.reply_text(f"🎉 И немного хэштегов для продвижения:\n{hashtags}\n\nХочешь контент-план на основе этой стратегии?", reply_markup=reply_markup)
@@ -562,14 +607,17 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             await update.message.reply_text(f"⏳ Генерирую для тебя контент-план...")
             response = generate_text(user_id, "content_plan")
             pdf_file = create_pdf(response, "content_plan.pdf")
-            with open(pdf_file, "rb") as f:
-                await update.message.reply_document(document=f, filename="content_plan.pdf", caption=f"📅 {user_names.get(user_id, 'Друг')}, вот твой контент-план!")
+            docx_file = create_docx(response, "content_plan.docx")
+            with open(pdf_file, "rb") as f_pdf, open(docx_file, "rb") as f_docx:
+                await update.message.reply_document(document=f_pdf, filename="content_plan.pdf", caption=f"📅 {user_names.get(user_id, 'Друг')}, вот твой контент-план (PDF)!")
+                await update.message.reply_document(document=f_docx, filename="content_plan.docx", caption=f"📅 {user_names.get(user_id, 'Друг')}, вот твой контент-план (DOCX)!")
             hashtags = generate_hashtags(user_data[user_id]["topic"])
             reply_markup = ReplyKeyboardMarkup(base_keyboard, resize_keyboard=True)
             await update.message.reply_text(f"🎉 И немного хэштегов:\n{hashtags}", reply_markup=reply_markup)
             user_stats[user_id]["content_plans"] += 1
             await save_data()
             os.remove(pdf_file)
+            os.remove(docx_file)
             del user_data[user_id]
         elif mode == "analytics" and stage == "reach":
             logger.info(f"Проверка охвата: сообщение='{message}'")
@@ -626,19 +674,19 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, выбери 'Да' или 'Нет'!", reply_markup=ReplyKeyboardMarkup([["Да", "Нет"]], resize_keyboard=True))
     else:
         if message == "пост":
-            user_data[user_id] = {"mode": "post", "stage": "topic"}
+            user_data[user_id] = {"mode": "post", "stage": "topic", "preferences": user_data.get(user_id, {}).get("preferences", {"topics": [], "styles": []})}
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, о чём написать пост? (Например, 'кофе') 😊")
         elif message == "сторис":
-            user_data[user_id] = {"mode": "story", "stage": "topic"}
+            user_data[user_id] = {"mode": "story", "stage": "topic", "preferences": user_data.get(user_id, {}).get("preferences", {"topics": [], "styles": []})}
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, о чём написать сторис? (Например, 'утро') 🌞")
         elif message == "аналитика":
-            user_data[user_id] = {"mode": "analytics", "stage": "topic"}
+            user_data[user_id] = {"mode": "analytics", "stage": "topic", "preferences": user_data.get(user_id, {}).get("preferences", {"topics": [], "styles": []})}
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, для чего аналитика? (Например, 'посты про кофе') 📊")
         elif message == "стратегия/контент-план":
-            user_data[user_id] = {"mode": "strategy_or_plan", "stage": "topic"}
+            user_data[user_id] = {"mode": "strategy_or_plan", "stage": "topic", "preferences": user_data.get(user_id, {}).get("preferences", {"topics": [], "styles": []})}
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, о чём стратегия или контент-план? (Например, 'фитнес клуб') 🚀")
         elif message == "хэштеги":
-            user_data[user_id] = {"mode": "hashtags", "stage": "topic"}
+            user_data[user_id] = {"mode": "hashtags", "stage": "topic", "preferences": user_data.get(user_id, {}).get("preferences", {"topics": [], "styles": []})}
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, для какой темы нужны хэштеги? 🤓")
         elif message == "отредактировать" and user_id in user_data and "last_result" in user_data[user_id]:
             user_data[user_id]["stage"] = "edit_request"
@@ -647,6 +695,18 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         else:
             reply_markup = ReplyKeyboardMarkup(edit_keyboard if user_id in user_data and "last_result" in user_data[user_id] else base_keyboard, resize_keyboard=True)
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, выбери действие из меню ниже! 😊", reply_markup=reply_markup)
+
+async def handle_callback(update: Update, context: ContextTypes):
+    query = update.callback_query
+    user_id = query.from_user.id
+    data = query.data
+
+    if data.startswith("guess_"):
+        likes = int(data.split("_")[1])
+        await query.answer(f"Ты угадал {likes} лайков! Скоро узнаем, прав ли ты 😎")
+    elif data.startswith("poll_"):
+        answer = "Да" if data == "poll_yes" else "Нет"
+        await query.answer(f"Ты выбрал: {answer}! Спасибо за голос!")
 
 async def handle_text(update: Update, context: ContextTypes):
     logger.info(f"Обработка текстового сообщения от {update.message.from_user.id}: {update.message.text}")
@@ -672,6 +732,9 @@ async def webhook(request):
             logger.info(f"Получен update: {update}")
             await app.process_update(update)
             await save_data()
+        elif update and update.callback_query:
+            logger.info(f"Получен callback: {update}")
+            await app.process_update(update)
         else:
             logger.warning("Update пустой или без сообщения")
         return web.Response(text="OK")
@@ -706,6 +769,7 @@ async def main():
     app.add_handler(CommandHandler("lang", handle_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app.add_handler(CallbackQueryHandler(handle_callback))
     return web_app
 
 if __name__ == "__main__":
