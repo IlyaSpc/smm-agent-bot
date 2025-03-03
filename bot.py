@@ -17,6 +17,7 @@ import pickle
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAHD9S-LbNMLdHPYtdFZRwg_2JBu_tdd0ng")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "e176b9501183206d063aab78a4abfe82727a24004a07f617c9e06472e2630118")
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
@@ -59,6 +60,7 @@ async def save_data():
         pickle.dump(dict(user_names), f)
     with open("hashtag_cache.pkl", "wb") as f:
         pickle.dump(dict(hashtag_cache), f)
+
 async def error_handler(update: Update, context: ContextTypes):
     logger.error(f"Произошла ошибка: {context.error}", exc_info=True)
     if update and update.message:
@@ -123,6 +125,7 @@ def create_pdf(text, filename="output.pdf"):
     except Exception as e:
         logger.error(f"Ошибка при создании PDF: {e}", exc_info=True)
         raise
+
 def generate_ideas(topic, style="саркастичный"):
     prompt = (
         f"Ты креативный SMM-специалист. Придумай ровно 3 уникальные идеи для постов или сторис на тему '{topic}' "
@@ -158,6 +161,7 @@ def generate_ideas(topic, style="саркастичный"):
     except Exception as e:
         logger.error(f"Ошибка при генерации идей: {e}")
         return ["1. Ошибка генерации", "2. Попробуй ещё раз", "3. Проверь соединение"]
+
 def generate_text(user_id, mode):
     topic = user_data[user_id].get("topic", "не_указано")
     style = user_data[user_id].get("style", "дружелюбный")
@@ -248,7 +252,7 @@ def generate_text(user_id, mode):
             client = user_data[user_id].get("client", "не указано")
             channels = user_data[user_id].get("channels", "не указано")
             strategy_text = user_data[user_id].get("strategy_text", "не указано")
-            duration_weeks = 3 if "3 раза в неделю" in frequency else 2  # По умолчанию 3 недели для "3 раза в неделю"
+            duration_weeks = 3 if "3 раза в неделю" in frequency else 2
             full_prompt = (
                 f"Ты SMM-специалист с 10-летним опытом, работающий на основе книг 'Пиши, сокращай', 'Клиентогенерация' и 'Тексты, которым верят'. "
                 f"Составь контент-план на русском языке для продвижения '{topic.replace('_', ' ')}' в социальных сетях с 27 февраля 2025 года на {duration_weeks} недели. "
@@ -311,8 +315,8 @@ def generate_text(user_id, mode):
             sleep(5)
     logger.error("Сервер Together AI не отвечает после 3 попыток")
     return "Сервер не отвечает, попробуй позже! 😓"
+
 def generate_hashtags(topic):
-    def generate_hashtags(topic):
     if topic in hashtag_cache:
         return hashtag_cache[topic]
     logger.info(f"Генерация хэштегов для темы: {topic}")
@@ -504,7 +508,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             os.remove(pdf_file)
             user_data[user_id] = {
                 "mode": "strategy_done",
-                "stage": "waiting_for_choice",  # Добавляем stage для отслеживания
+                "stage": "waiting_for_choice",
                 "topic": user_data[user_id]["topic"],
                 "client": user_data[user_id]["client"],
                 "channels": user_data[user_id]["channels"],
