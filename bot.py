@@ -143,30 +143,50 @@ def generate_ideas(topic, style="саркастичный"):
         "max_tokens": 1000,
         "temperature": 0.5
     }
-    try:
-        logger.info(f"Генерация идей для темы: {topic} в стиле {style}")
-        response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
-        if response.status_code == 200:
-            logger.info("Успешная генерация идей")
-            raw_text = response.json()["choices"][0]["message"]["content"].strip()
-            ideas = [correct_text(line.strip()) for line in raw_text.split("\n") if line.strip()]
-            filtered_ideas = [idea for idea in ideas if len(idea.split()) >= 5 and topic.replace('_', ' ') in idea.lower()]
-            if len(filtered_ideas) < 3:
-                logger.warning(f"Модель дала только {len(filtered_ideas)} идей для '{topic}', дополняем запасными")
-                fallback_ideas = [
-                    f"Попробуй {topic} сегодня и расскажи друзьям о своих впечатлениях прямо сейчас!",
-                    f"Освой {topic} с нами и поделись своим опытом в комментариях ниже!",
-                    f"Погрузись в {topic} полностью и покажи всем, как это круто выглядит!"
-                ]
-                while len(filtered_ideas) < 3:
-                    filtered_ideas.append(fallback_ideas[len(filtered_ideas)])
-            return [f"{i+1}. {idea}" for i, idea in enumerate(filtered_ideas[:3])]
-        else:
-            logger.error(f"Ошибка Together AI: {response.status_code} - {response.text}")
-            return ["1. Ошибка генерации", "2. Попробуй ещё раз", "3. Проверь соединение"]
-    except Exception as e:
-        logger.error(f"Ошибка при генерации идей: {e}")
-        return ["1. Ошибка генерации", "2. Попробуй ещё раз", "3. Проверь соединение"]
+    attempts = 0
+    max_attempts = 3
+    filtered_ideas = []
+    
+    while attempts < max_attempts and len(filtered_ideas) < 3:
+        try:
+            logger.info(f"Генерация идей для темы: {topic} в стиле {style}, попытка {attempts + 1}")
+            response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
+            if response.status_code == 200:
+                logger.info("Успешная генерация идей")
+                raw_text = response.json()["choices"][0]["message"]["content"].strip()
+                ideas = [correct_text(line.strip()) for line in raw_text.split("\n") if line.strip()]
+                filtered_ideas.extend([idea for idea in ideas if len(idea.split()) >= 5])
+            else:
+                logger.error(f"Ошибка Together AI: {response.status_code} - {response.text}")
+            attempts += 1
+        except Exception as e:
+            logger.error(f"Ошибка при генерации идей: {e}")
+            attempts += 1
+
+    if len(filtered_ideas) < 3:
+        logger.warning(f"Модель дала только {len(filtered_ideas)} идей для '{topic}', дополняем запасными")
+        fallback_ideas = {
+            "саркастичный": [
+                "Все думают, что знают эту тему, а ты докажи обратное в комментариях!",
+                "Не сиди в тени, хватай удачу за горло и поделись результатом!",
+                "Жизнь коротка, действуй быстро или пинай себя потом вечно!"
+            ],
+            "дружелюбный": [
+                "Попробуй что-то новое сегодня и расскажи нам, как это было весело!",
+                "С нами всё проще, начни прямо сейчас и поделись своим успехом!",
+                "Давай вместе сделаем день ярче, покажи всем свои крутые идеи!"
+            ],
+            "формальный": [
+                "Изучите основы этой темы и представьте свои выводы в комментариях.",
+                "Начните использовать новые знания и продемонстрируйте достигнутый прогресс.",
+                "Присоединяйтесь к нам и сообщите о результатах вашего опыта."
+            ]
+        }
+        style_key = style.lower()
+        while len(filtered_ideas) < 3:
+            filtered_ideas.append(fallback_ideas.get(style_key, fallback_ideas["дружелюбный"])[len(filtered_ideas) % 3])
+
+    return [f"{i+1}. {idea}" for i, idea in enumerate(filtered_ideas[:3])]
 
 def generate_text(user_id, mode):
     topic = user_data[user_id].get("topic", "не_указано")
