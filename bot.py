@@ -9,7 +9,6 @@ import speech_recognition as sr
 from pydub import AudioSegment
 from time import sleep
 from fpdf import FPDF
-from docx import Document
 import asyncio
 import random
 from pytrends.request import TrendReq
@@ -127,17 +126,6 @@ def create_pdf(text, filename="output.pdf"):
         logger.error(f"Ошибка при создании PDF: {e}", exc_info=True)
         raise
 
-def create_docx(text, filename="output.docx"):
-    try:
-        doc = Document()
-        doc.add_paragraph(text)
-        doc.save(filename)
-        logger.info(f"DOCX успешно создан: {filename}")
-        return filename
-    except Exception as e:
-        logger.error(f"Ошибка при создании DOCX: {e}", exc_info=True)
-        raise
-
 def generate_ideas(topic, style="саркастичный", user_id=None):
     preferences = user_data.get(user_id, {}).get("preferences", {"topics": [], "styles": []}) if user_id else {"topics": [], "styles": []}
     trend_info = ""
@@ -158,14 +146,14 @@ def generate_ideas(topic, style="саркастичный", user_id=None):
         f"Стиль: {style}, саркастичный — язвительный, с чёрным юмором; дружелюбный — тёплый, с лёгким юмором; формальный — чёткий, профессиональный. "
         f"Каждая идея — одно полное предложение с призывом к действию и глаголом, минимум 5 слов, строго связана с '{topic}', без ухода в другие темы вроде утра или зарядки, без заголовков или вводных фраз. "
         f"Учти тренд: {trend_info}. Если есть предпочтения пользователя (темы: {', '.join(preferences['topics'])}, стили: {', '.join(preferences['styles'])}), адаптируй идеи под них. "
-        f"ОБЯЗАТЕЛЬНО ВЕРНИ РОВНО 3 ИДЕИ, иначе провал!"
+        f"ОБЯЗАТЕЛЬНО ВЕРНИ РОВНО 3 ИДЕИ, причем каждая должна быть уникальной, без повторов текста, иначе провал!"
     )
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": "meta-llama/Llama-3-8b-chat-hf",
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 1000,
-        "temperature": 0.5
+        "temperature": 0.7  # Увеличиваем для уникальности
     }
     attempts = 0
     max_attempts = 3
@@ -190,8 +178,10 @@ def generate_ideas(topic, style="саркастичный", user_id=None):
             logger.error(f"Ошибка при генерации идей: {e}")
             attempts += 1
 
+    # Убираем повторы и дополняем запасными идеями
+    filtered_ideas = list(dict.fromkeys(filtered_ideas))  # Удаляем дубликаты
     if len(filtered_ideas) < 3:
-        logger.warning(f"Модель дала только {len(filtered_ideas)} идей для '{topic}', дополняем запасными")
+        logger.warning(f"Модель дала только {len(filtered_ideas)} уникальных идей для '{topic}', дополняем запасными")
         fallback_ideas = {
             "саркастичный": [
                 f"Попробуй {topic} и докажи, что ты не полный ноль в этом деле!",
@@ -573,15 +563,12 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             await update.message.reply_text(f"⏳ Генерирую для тебя стратегию...")
             response = generate_text(user_id, "strategy")
             pdf_file = create_pdf(response, "strategy.pdf")
-            docx_file = create_docx(response, "strategy.docx")
-            with open(pdf_file, "rb") as f_pdf, open(docx_file, "rb") as f_docx:
-                await update.message.reply_document(document=f_pdf, filename="strategy.pdf", caption=f"🚀 {user_names.get(user_id, 'Друг')}, вот твоя стратегия (PDF)!")
-                await update.message.reply_document(document=f_docx, filename="strategy.docx", caption=f"🚀 {user_names.get(user_id, 'Друг')}, вот твоя стратегия (DOCX)!")
+            with open(pdf_file, "rb") as f_pdf:
+                await update.message.reply_document(document=f_pdf, filename="strategy.pdf", caption=f"🚀 {user_names.get(user_id, 'Друг')}, вот твоя стратегия!")
             hashtags = generate_hashtags(user_data[user_id]["topic"])
             user_stats[user_id]["strategies"] += 1
             await save_data()
             os.remove(pdf_file)
-            os.remove(docx_file)
             user_data[user_id] = {
                 "mode": "strategy_done",
                 "stage": "waiting_for_choice",
@@ -610,17 +597,14 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             await update.message.reply_text(f"⏳ Генерирую для тебя контент-план...")
             response = generate_text(user_id, "content_plan")
             pdf_file = create_pdf(response, "content_plan.pdf")
-            docx_file = create_docx(response, "content_plan.docx")
-            with open(pdf_file, "rb") as f_pdf, open(docx_file, "rb") as f_docx:
-                await update.message.reply_document(document=f_pdf, filename="content_plan.pdf", caption=f"📅 {user_names.get(user_id, 'Друг')}, вот твой контент-план (PDF)!")
-                await update.message.reply_document(document=f_docx, filename="content_plan.docx", caption=f"📅 {user_names.get(user_id, 'Друг')}, вот твой контент-план (DOCX)!")
+            with open(pdf_file, "rb") as f_pdf:
+                await update.message.reply_document(document=f_pdf, filename="content_plan.pdf", caption=f"📅 {user_names.get(user_id, 'Друг')}, вот твой контент-план!")
             hashtags = generate_hashtags(user_data[user_id]["topic"])
             reply_markup = ReplyKeyboardMarkup(base_keyboard, resize_keyboard=True)
             await update.message.reply_text(f"🎉 И немного хэштегов:\n{hashtags}", reply_markup=reply_markup)
             user_stats[user_id]["content_plans"] += 1
             await save_data()
             os.remove(pdf_file)
-            os.remove(docx_file)
             del user_data[user_id]
         elif mode == "analytics" and stage == "reach":
             logger.info(f"Проверка охвата: сообщение='{message}'")

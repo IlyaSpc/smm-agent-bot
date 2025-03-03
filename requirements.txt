@@ -5,4 +5,3 @@ speechrecognition
 pydub
 fpdf
 pytrends
-python-docx
