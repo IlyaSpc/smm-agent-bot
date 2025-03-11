@@ -153,7 +153,7 @@ def generate_ideas(topic, style="саркастичный", user_id=None):
         "model": "meta-llama/Llama-3-8b-chat-hf",
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 1000,
-        "temperature": 0.7  # Увеличиваем для уникальности
+        "temperature": 0.7
     }
     attempts = 0
     max_attempts = 3
@@ -168,7 +168,6 @@ def generate_ideas(topic, style="саркастичный", user_id=None):
                 logger.info("Успешная генерация идей")
                 raw_text = response.json()["choices"][0]["message"]["content"].strip()
                 ideas = [correct_text(line.strip()) for line in raw_text.split("\n") if line.strip()]
-                # Убираем нумерацию из текста идей
                 ideas = [re.sub(r'^\d+\.\s*', '', idea) for idea in ideas]
                 filtered_ideas.extend([idea for idea in ideas if len(idea.split()) >= 5 and not any(phrase in idea.lower() for phrase in forbidden_phrases)])
             else:
@@ -178,10 +177,9 @@ def generate_ideas(topic, style="саркастичный", user_id=None):
             logger.error(f"Ошибка при генерации идей: {e}")
             attempts += 1
 
-    # Убираем повторы и дополняем запасными идеями
-    filtered_ideas = list(dict.fromkeys(filtered_ideas))  # Удаляем дубликаты
+    filtered_ideas = list(dict.fromkeys(filtered_ideas))
     if len(filtered_ideas) < 3:
-        logger.warning(f"Модель дала только {len(filtered_ideas)} уникальных идей для '{topic}', дополняем запасными")
+        logger.warning(f"Модель дала только {len(filtered_ideas)} идей для '{topic}', дополняем запасными")
         fallback_ideas = {
             "саркастичный": [
                 f"Попробуй {topic} и докажи, что ты не полный ноль в этом деле!",
@@ -349,7 +347,6 @@ def generate_text(user_id, mode):
                 if lang == "ru" and re.search(r'[^\u0400-\u04FF\s\d.,!?():;-]', corrected_text):
                     logger.warning(f"Обнаружены не-русские символы, заменяю...")
                     corrected_text = re.sub(r'[^\u0400-\u04FF\s\d.,!?():;-]', '', corrected_text)
-                # Усиленная проверка на осмысленность и завершенность
                 if not (re.search(r'[а-яё]+\s+[а-яё]+', corrected_text) and corrected_text.count('.') >= (3 if mode == "post" else 2) and not corrected_text.endswith('.')):
                     logger.warning("Текст недостаточно осмыслен или оборван, пробуем ещё раз")
                     continue
@@ -399,7 +396,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         return
 
     base_keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"], ["/stats"]]
-    edit_keyboard = [["Пост", "Сторис", "Отредактировать"], ["Аналитика", "Стратегия/Контент-план"], ["Хэштеги", "/stats"]]
+    edit_keyboard = [["Пост", "Сторис", "Редактировать"], ["Аналитика", "Стратегия/Контент-план"], ["Хэштеги", "/stats"]]
     reply_markup = ReplyKeyboardMarkup(base_keyboard, resize_keyboard=True)
     
     style_keyboard = [["Формальный", "Дружелюбный", "Саркастичный"]]
@@ -516,7 +513,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 await save_data()
                 user_data[user_id] = {"mode": mode, "last_result": user_data[user_id]["last_result"], "style": user_data[user_id]["style"], "template": user_data[user_id]["template"], "topic": user_data[user_id]["topic"], "preferences": user_data[user_id]["preferences"]}
                 reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
-                await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твой {mode}! 🔥\n{response}\n\n{hashtags}\n\nНе нравится? Выбери 'Отредактировать'!", reply_markup=reply_markup)
+                await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твой {mode}! 🔥\n{response}\n\n{hashtags}\n\nНе нравится? Выбери 'Редактировать'!", reply_markup=reply_markup)
                 if mode == "post":
                     guess_keyboard = [[InlineKeyboardButton("50", callback_data="guess_50"), InlineKeyboardButton("100", callback_data="guess_100"), InlineKeyboardButton("200", callback_data="guess_200")]]
                     guess_markup = InlineKeyboardMarkup(guess_keyboard)
@@ -527,7 +524,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                     await update.message.reply_text("Голосуй прямо здесь!", reply_markup=poll_markup)
             else:
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, выбери номер идеи (1, 2, 3) или напиши свою! 😊")
-        elif mode in ["post", "story"] and message == "отредактировать" and "last_result" in user_data[user_id]:
+        elif mode in ["post", "story"] and message == "редактировать" and "last_result" in user_data[user_id]:
             user_data[user_id]["stage"] = "edit_request"
             reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, что исправить в последнем результате? (Например, 'убери слово кофе')", reply_markup=reply_markup)
@@ -548,8 +545,8 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             corrected_text = correct_text(response.json()["choices"][0]["message"]["content"].strip()) if response.status_code == 200 else "Ошибка редактирования 😓"
             user_data[user_id]["last_result"] = corrected_text
             reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
-            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот исправленный {mode}! 🔥\n{corrected_text}\n\nНе нравится? Выбери 'Отредактировать'!", reply_markup=reply_markup)
-            del user_data[user_id]  # Сбрасываем состояние после редактирования
+            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот исправленный {mode}! 🔥\n{corrected_text}\n\nНе нравится? Выбери 'Редактировать'!", reply_markup=reply_markup)
+            del user_data[user_id]
         elif mode == "strategy" and stage == "client":
             user_data[user_id]["client"] = message
             user_data[user_id]["stage"] = "channels"
@@ -607,24 +604,15 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             os.remove(pdf_file)
             del user_data[user_id]
         elif mode == "analytics" and stage == "reach":
-            logger.info(f"Проверка охвата: сообщение='{message}'")
             if "просмотр" in message.lower() or message.isdigit():
-                logger.info("Условие охвата выполнено")
                 user_data[user_id]["reach"] = message if "просмотр" in message.lower() else f"{message} просмотров"
-                logger.info(f"Установлен reach: {user_data[user_id]['reach']}")
                 user_data[user_id]["stage"] = "engagement"
-                logger.info("Стадия изменена на engagement")
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, какая вовлечённость у вашего контента? (Например, '50 лайков, 10 комментариев') 📊")
-                logger.info("Сообщение об вовлечённости отправлено")
             else:
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, укажи охват цифрами или с 'просмотров' (например, '500 просмотров') 📈")
-                logger.info("Сообщение об ошибке охвата отправлено")
         elif mode == "analytics" and stage == "engagement":
-            logger.info(f"Проверка вовлечённости: сообщение='{message}'")
             if re.match(r'^\d+\s+лайков,\s*\d+\s+комментариев$', message):
-                logger.info("Условие вовлечённости выполнено (полный формат)")
                 user_data[user_id]["engagement"] = message
-                logger.info(f"Установлена engagement: {user_data[user_id]['engagement']}")
                 await update.message.reply_text(f"⏳ Генерирую для тебя аналитику...")
                 response = generate_text(user_id, "analytics")
                 hashtags = generate_hashtags(user_data[user_id]["topic"])
@@ -634,10 +622,8 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 await save_data()
                 del user_data[user_id]
             elif re.match(r'^\d+\s+\d+$', message):
-                logger.info("Условие вовлечённости выполнено (сокращённый формат)")
                 likes, comments = map(int, message.split())
                 user_data[user_id]["engagement"] = f"{likes} лайков, {comments} комментариев"
-                logger.info(f"Установлена engagement: {user_data[user_id]['engagement']}")
                 await update.message.reply_text(f"⏳ Генерирую для тебя аналитику...")
                 response = generate_text(user_id, "analytics")
                 hashtags = generate_hashtags(user_data[user_id]["topic"])
@@ -648,7 +634,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 del user_data[user_id]
             else:
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, укажи вовлечённость в формате 'X лайков, Y комментариев' или 'X Y' (например, '50 лайков, 10 комментариев' или '50 10') 📊")
-                logger.info("Сообщение об ошибке вовлечённости отправлено")
         elif mode == "strategy_done" and stage == "waiting_for_choice":
             if message == "да":
                 user_data[user_id]["mode"] = "content_plan"
@@ -675,7 +660,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         elif message == "хэштеги":
             user_data[user_id] = {"mode": "hashtags", "stage": "topic", "preferences": user_data.get(user_id, {}).get("preferences", {"topics": [], "styles": []})}
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, для какой темы нужны хэштеги? 🤓")
-        elif message == "отредактировать" and user_id in user_data and "last_result" in user_data[user_id]:
+        elif message == "редактировать" and user_id in user_data and "last_result" in user_data[user_id]:
             user_data[user_id]["stage"] = "edit_request"
             reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, что исправить в последнем результате? (Например, 'убери слово кофе')", reply_markup=reply_markup)
