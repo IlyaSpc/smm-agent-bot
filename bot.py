@@ -34,10 +34,13 @@ async def health_check(request):
 # Функция загрузки промтов с Google Drive
 async def get_prompt_from_drive(prompt_name):
     try:
+        logger.info(f"Загрузка промта '{prompt_name}' с Google Drive")
         response = requests.get(PROMPTS_URL, timeout=10)
         if response.status_code == 200:
             prompts = json.loads(response.text)
-            return prompts.get(prompt_name, "Промт не найден")
+            prompt = prompts.get(prompt_name, "Промт не найден")
+            logger.info(f"Промт '{prompt_name}' загружен: {prompt[:50]}...")
+            return prompt
         logger.error(f"Ошибка загрузки промтов: {response.status_code} - {response.text}")
         return "Ошибка загрузки промтов"
     except Exception as e:
@@ -46,6 +49,7 @@ async def get_prompt_from_drive(prompt_name):
 
 # Генерация текста
 async def generate_text(user_id, mode):
+    logger.info(f"Генерация текста для user_id={user_id}, mode={mode}")
     topic = user_data[user_id].get("topic", "не_указано")
     style = user_data[user_id].get("style", "дружелюбный")
     tone = user_data[user_id].get("tone", "универсальный")
@@ -58,6 +62,7 @@ async def generate_text(user_id, mode):
 
     base_prompt = await get_prompt_from_drive(mode)
     if "не найден" in base_prompt or "ошибка" in base_prompt.lower():
+        logger.error(f"Промт для '{mode}' не загружен")
         return f"Ошибка: промт для '{mode}' не загружен!"
 
     try:
@@ -72,7 +77,9 @@ async def generate_text(user_id, mode):
             result=result,
             competitor_keyword=competitor_keyword
         )
+        logger.info(f"Сформирован промт: {full_prompt[:50]}...")
     except KeyError as e:
+        logger.error(f"Ошибка в промте: отсутствует параметр {e}")
         return f"Ошибка в промте: отсутствует параметр {e}"
 
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
@@ -85,7 +92,10 @@ async def generate_text(user_id, mode):
     try:
         response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"].strip()
+            result = response.json()["choices"][0]["message"]["content"].strip()
+            logger.info(f"Текст сгенерирован: {result[:50]}...")
+            return result
+        logger.error(f"Ошибка API Together: {response.status_code} - {response.text}")
         return "Ошибка API"
     except Exception as e:
         logger.error(f"Ошибка генерации текста: {e}")
@@ -93,16 +103,20 @@ async def generate_text(user_id, mode):
 
 # Генерация идей
 def generate_ideas(topic, style="саркастичный", user_id=None):
+    logger.info(f"Генерация идей для topic={topic}, user_id={user_id}")
     niche = user_data.get(user_id, {}).get("niche", "не_указано")
-    mode = user_data[user_id].get("mode", "post")
+    mode = user_data[user_id].get("mode", "post") if user_id else "post"
     prompt_key = "reels" if mode == "reels" else "ideas"
     base_prompt = asyncio.run(get_prompt_from_drive(prompt_key))
     if "не найден" in base_prompt or "ошибка" in base_prompt.lower():
+        logger.error(f"Промт для '{prompt_key}' не загружен")
         return ["1. Ошибка: промт для идей не загружен!"]
 
     try:
         full_prompt = base_prompt.format(topic=topic, style=style, niche=niche)
+        logger.info(f"Сформирован промт для идей: {full_prompt[:50]}...")
     except KeyError as e:
+        logger.error(f"Ошибка в промте: отсутствует параметр {e}")
         return [f"1. Ошибка в промте: отсутствует параметр {e}"]
 
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
@@ -117,7 +131,10 @@ def generate_ideas(topic, style="саркастичный", user_id=None):
         if response.status_code == 200:
             raw_text = response.json()["choices"][0]["message"]["content"].strip()
             ideas = [line.strip() for line in raw_text.split("\n") if line.strip()]
-            return [f"{i+1}. {idea}" for i, idea in enumerate(ideas[:3])]
+            result = [f"{i+1}. {idea}" for i, idea in enumerate(ideas[:3])]
+            logger.info(f"Идеи сгенерированы: {result}")
+            return result
+        logger.error(f"Ошибка API Together: {response.status_code} - {response.text}")
         return ["1. Ошибка генерации идей 😓"]
     except Exception as e:
         logger.error(f"Ошибка генерации идей: {e}")
@@ -127,9 +144,11 @@ def generate_ideas(topic, style="саркастичный", user_id=None):
 async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     user_id = update.message.from_user.id
     message = update.message.text.lower().strip() if not is_voice else "голосовое"
+    logger.info(f"Получено сообщение от {user_id}: {message}")
 
     if user_id not in user_data:
         user_data[user_id] = {"preferences": {"topics": [], "styles": []}}
+        logger.info(f"Создан новый пользователь: {user_id}")
 
     base_keyboard = [["Пост", "Сторис", "Reels"], ["Аналитика", "Конкуренты", "А/Б тест"], ["Стратегия/Контент-план", "Хэштеги"], ["/stats"]]
     reply_markup = ReplyKeyboardMarkup(base_keyboard, resize_keyboard=True)
@@ -142,6 +161,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
 
     mode = user_data[user_id].get("mode")
     stage = user_data[user_id].get("stage")
+    logger.info(f"Текущая стадия: mode={mode}, stage={stage}")
 
     if mode == "name" and stage == "ask_name":
         user_names[user_id] = message.capitalize()
@@ -204,11 +224,17 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
 # Webhook
 async def webhook(request):
     try:
+        logger.info("Получен запрос на /webhook")
         update = Update.de_json(await request.json(), app.bot)
-        await app.process_update(update)
+        if update:
+            logger.info(f"Обработка обновления: {update}")
+            await app.process_update(update)
+            logger.info("Обновление обработано успешно")
+        else:
+            logger.warning("Получен пустой update")
         return web.Response(text="OK", status=200)
     except Exception as e:
-        logger.error(f"Ошибка в webhook: {e}")
+        logger.error(f"Ошибка в webhook: {e}", exc_info=True)
         return web.Response(text="Error", status=500)
 
 # Запуск
@@ -219,11 +245,11 @@ async def main():
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         web_app = web.Application()
         web_app.router.add_post('/webhook', webhook)
-        web_app.router.add_get('/health', health_check)  # Health check endpoint
+        web_app.router.add_get('/health', health_check)
         logger.info(f"Сервер готов, слушает порт {PORT}")
         return web_app
     except Exception as e:
-        logger.error(f"Ошибка при запуске: {e}")
+        logger.error(f"Ошибка при запуске: {e}", exc_info=True)
         raise
 
 if __name__ == "__main__":
@@ -231,4 +257,4 @@ if __name__ == "__main__":
     try:
         web.run_app(main(), host="0.0.0.0", port=PORT)
     except Exception as e:
-        logger.error(f"Критическая ошибка: {e}")
+        logger.error(f"Критическая ошибка: {e}", exc_info=True)
