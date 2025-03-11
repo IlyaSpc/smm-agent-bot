@@ -225,7 +225,9 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
 async def webhook(request):
     try:
         logger.info("Получен запрос на /webhook")
-        update = Update.de_json(await request.json(), app.bot)
+        data = await request.json()
+        logger.info(f"Данные от Telegram: {data}")
+        update = Update.de_json(data, app.bot)
         if update:
             logger.info(f"Обработка обновления: {update}")
             await app.process_update(update)
@@ -247,6 +249,9 @@ async def main():
         web_app.router.add_post('/webhook', webhook)
         web_app.router.add_get('/health', health_check)
         logger.info(f"Сервер готов, слушает порт {PORT}")
+        # Проверяем webhook при старте
+        webhook_info = await app.bot.get_webhook_info()
+        logger.info(f"Текущий webhook: {webhook_info}")
         return web_app
     except Exception as e:
         logger.error(f"Ошибка при запуске: {e}", exc_info=True)
