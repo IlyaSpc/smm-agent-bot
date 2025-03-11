@@ -26,6 +26,11 @@ user_data = {}
 user_names = {}
 hashtag_cache = {}
 
+# Health check endpoint
+async def health_check(request):
+    logger.info("Получен запрос на /health")
+    return web.Response(text="OK", status=200)
+
 # Функция загрузки промтов с Google Drive
 async def get_prompt_from_drive(prompt_name):
     try:
@@ -33,7 +38,7 @@ async def get_prompt_from_drive(prompt_name):
         if response.status_code == 200:
             prompts = json.loads(response.text)
             return prompts.get(prompt_name, "Промт не найден")
-        logger.error(f"Ошибка загрузки промтов: {response.status_code}")
+        logger.error(f"Ошибка загрузки промтов: {response.status_code} - {response.text}")
         return "Ошибка загрузки промтов"
     except Exception as e:
         logger.error(f"Ошибка при запросе к Google Drive: {e}")
@@ -196,19 +201,34 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     else:
         await update.message.reply_text(f"Выбери действие!", reply_markup=reply_markup)
 
-# Webhook и запуск
+# Webhook
 async def webhook(request):
-    update = Update.de_json(await request.json(), app.bot)
-    await app.process_update(update)
-    return web.Response(text="OK")
+    try:
+        update = Update.de_json(await request.json(), app.bot)
+        await app.process_update(update)
+        return web.Response(text="OK", status=200)
+    except Exception as e:
+        logger.error(f"Ошибка в webhook: {e}")
+        return web.Response(text="Error", status=500)
 
+# Запуск
 async def main():
-    app.add_handler(CommandHandler("start", handle_message))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    web_app = web.Application()
-    web_app.router.add_post('/webhook', webhook)
-    return web_app
+    try:
+        logger.info("Инициализация приложения...")
+        app.add_handler(CommandHandler("start", handle_message))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        web_app = web.Application()
+        web_app.router.add_post('/webhook', webhook)
+        web_app.router.add_get('/health', health_check)  # Health check endpoint
+        logger.info(f"Сервер готов, слушает порт {PORT}")
+        return web_app
+    except Exception as e:
+        logger.error(f"Ошибка при запуске: {e}")
+        raise
 
 if __name__ == "__main__":
     logger.info("Запуск бота...")
-    web.run_app(main(), host="0.0.0.0", port=PORT)
+    try:
+        web.run_app(main(), host="0.0.0.0", port=PORT)
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}")
