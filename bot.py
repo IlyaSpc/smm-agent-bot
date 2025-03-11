@@ -101,7 +101,7 @@ async def generate_text(user_id, mode):
         logger.error(f"Ошибка генерации текста: {e}")
         return "Сервер не отвечает 😓"
 
-# Генерация идей (теперь асинхронная)
+# Генерация идей
 async def generate_ideas(topic, style="саркастичный", user_id=None):
     logger.info(f"Генерация идей для topic={topic}, user_id={user_id}")
     niche = user_data.get(user_id, {}).get("niche", "не_указано")
@@ -123,15 +123,18 @@ async def generate_ideas(topic, style="саркастичный", user_id=None):
     payload = {
         "model": "meta-llama/Llama-3-8b-chat-hf",
         "messages": [{"role": "user", "content": full_prompt}],
-        "max_tokens": 1000,
+        "max_tokens": 500,  # Увеличиваем для трёх идей
         "temperature": 0.7
     }
     try:
         response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
             raw_text = response.json()["choices"][0]["message"]["content"].strip()
-            ideas = [line.strip() for line in raw_text.split("\n") if line.strip()]
-            result = [f"{i+1}. {idea}" for i, idea in enumerate(ideas[:3])]
+            ideas = [line.strip() for line in raw_text.split("\n") if line.strip() and not line.lower().startswith(("я готов", "вот три", "1.", "2.", "3."))]
+            ideas = [idea for idea in ideas if len(idea.split()) >= 5][:3]  # Фильтруем короткие и берём 3
+            if len(ideas) < 3:
+                ideas.extend([f"Искры гениальности кончились — попробуй ещё раз!" for _ in range(len(ideas), 3)])
+            result = [f"{i+1}. {idea}" for i, idea in enumerate(ideas)]
             logger.info(f"Идеи сгенерированы: {result}")
             return result
         logger.error(f"Ошибка API Together: {response.status_code} - {response.text}")
@@ -150,7 +153,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         user_data[user_id] = {"preferences": {"topics": [], "styles": []}}
         logger.info(f"Создан новый пользователь: {user_id}")
 
-    base_keyboard = [["Пост", "Сторис", "Reels"], ["Аналитика", "Конкуренты", "А/Б тест"], ["Стратегия/Контент-план", "Хэштеги"], ["/stats"]]
+    base_keyboard = [["Пост", "Сторис", "Reels"], ["Аналитика", "Конкуренты", "А/Б тест"], ["Стратегия/Контент-план", "Хэштеги"]]
     reply_markup = ReplyKeyboardMarkup(base_keyboard, resize_keyboard=True)
 
     if message == "/start":
@@ -171,7 +174,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     elif mode == "niche" and stage == "ask_niche":
         user_data[user_id]["niche"] = message
         user_data[user_id]["mode"] = "main"
-        user_data[user_id]["stage"] = None  # Сбрасываем stage после ниши
+        user_data[user_id]["stage"] = None
         await update.message.reply_text(f"Круто, ниша '{message}'! Что делаем?", reply_markup=reply_markup)
     elif message == "пост":
         user_data[user_id]["mode"] = "post"
@@ -198,6 +201,8 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         if message.isdigit() and 1 <= int(message) <= 3:
             user_data[user_id]["stage"] = "generating"
             response = await generate_text(user_id, "post")
+            user_data[user_id]["mode"] = "main"
+            user_data[user_id]["stage"] = None
             await update.message.reply_text(f"Вот твой пост:\n{response}", reply_markup=reply_markup)
     elif message == "reels":
         user_data[user_id]["mode"] = "reels"
@@ -206,6 +211,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     elif mode == "reels" and stage == "topic":
         user_data[user_id]["topic"] = message.replace(" ", "_")
         ideas = await generate_ideas(user_data[user_id]["topic"], "дружелюбный", user_id)
+        user_data[user_id]["stage"] = None
         await update.message.reply_text(f"Вот идеи для Reels:\n" + "\n".join(ideas), reply_markup=reply_markup)
     elif message == "конкуренты":
         user_data[user_id]["mode"] = "competitor_analysis"
@@ -214,6 +220,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     elif mode == "competitor_analysis" and stage == "keyword":
         user_data[user_id]["competitor_keyword"] = message
         response = await generate_text(user_id, "competitor_analysis")
+        user_data[user_id]["stage"] = None
         await update.message.reply_text(f"Анализ конкурентов:\n{response}", reply_markup=reply_markup)
     elif message == "а/б тест":
         user_data[user_id]["mode"] = "ab_testing"
@@ -222,7 +229,30 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     elif mode == "ab_testing" and stage == "topic":
         user_data[user_id]["topic"] = message.replace(" ", "_")
         response = await generate_text(user_id, "ab_testing")
+        user_data[user_id]["stage"] = None
         await update.message.reply_text(f"Вот 3 заголовка:\n{response}\nВыбери номер (1, 2, 3)!", reply_markup=reply_markup)
+    elif message == "стратегия/контент-план":
+        user_data[user_id]["mode"] = "strategy"
+        user_data[user_id]["stage"] = "topic"
+        await update.message.reply_text(f"По какой теме стратегия?")
+    elif mode == "strategy" and stage == "topic":
+        user_data[user_id]["topic"] = message.replace(" ", "_")
+        user_data[user_id]["stage"] = "client"
+        await update.message.reply_text(f"Кто целевая аудитория?")
+    elif mode == "strategy" and stage == "client":
+        user_data[user_id]["client"] = message
+        user_data[user_id]["stage"] = "channels"
+        await update.message.reply_text(f"Какие каналы продвижения?")
+    elif mode == "strategy" and stage == "channels":
+        user_data[user_id]["channels"] = message
+        user_data[user_id]["stage"] = "result"
+        await update.message.reply_text(f"Какой результат нужен?")
+    elif mode == "strategy" and stage == "result":
+        user_data[user_id]["result"] = message
+        response = await generate_text(user_id, "strategy")
+        user_data[user_id]["mode"] = "main"
+        user_data[user_id]["stage"] = None
+        await update.message.reply_text(f"Вот стратегия:\n{response}", reply_markup=reply_markup)
     else:
         await update.message.reply_text(f"Выбери действие!", reply_markup=reply_markup)
 
@@ -248,14 +278,13 @@ async def webhook(request):
 async def main():
     try:
         logger.info("Инициализация приложения...")
-        await app.initialize()  # Инициализируем Application
+        await app.initialize()
         app.add_handler(CommandHandler("start", handle_message))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         web_app = web.Application()
         web_app.router.add_post('/webhook', webhook)
         web_app.router.add_get('/health', health_check)
         logger.info(f"Сервер готов, слушает порт {PORT}")
-        # Проверяем webhook при старте
         webhook_info = await app.bot.get_webhook_info()
         logger.info(f"Текущий webhook: {webhook_info}")
         return web_app
