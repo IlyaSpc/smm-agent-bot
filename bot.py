@@ -38,14 +38,11 @@ BOOK_CONTEXT = """
 """
 
 user_data = {}
-user_stats = defaultdict(lambda: {"posts": 0, "stories": 0, "hashtags": 0, "strategies": 0, "content_plans": 0, "analytics": 0})
 user_names = {}
 hashtag_cache = {}
 processed_messages = set()
 
 try:
-    with open("user_stats.pkl", "rb") as f:
-        user_stats.update(pickle.load(f))
     with open("user_names.pkl", "rb") as f:
         user_names.update(pickle.load(f))
     with open("hashtag_cache.pkl", "rb") as f:
@@ -54,8 +51,6 @@ except FileNotFoundError:
     pass
 
 async def save_data():
-    with open("user_stats.pkl", "wb") as f:
-        pickle.dump(dict(user_stats), f)
     with open("user_names.pkl", "wb") as f:
         pickle.dump(dict(user_names), f)
     with open("hashtag_cache.pkl", "wb") as f:
@@ -64,7 +59,7 @@ async def save_data():
 async def error_handler(update: Update, context: ContextTypes):
     logger.error(f"Произошла ошибка: {context.error}", exc_info=True)
     if update and update.message:
-        keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"], ["/stats"]]
+        keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги", "ИИ-вопросы"], ["Тренды"]]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Ой, что-то пошло не так 😅 Попробуй ещё разок!", reply_markup=reply_markup)
 
@@ -382,7 +377,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         else:
             if not update.message.text:
                 logger.warning("Сообщение пустое")
-                keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"], ["/stats"]]
+                keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги", "ИИ-вопросы"], ["Тренды"]]
                 reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, сообщение пустое 😅 Напиши что-нибудь!", reply_markup=reply_markup)
                 return
@@ -390,13 +385,13 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         logger.info(f"Получено сообщение: {message}")
     except Exception as e:
         logger.error(f"Ошибка при получении сообщения: {e}", exc_info=True)
-        keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"], ["/stats"]]
+        keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги", "ИИ-вопросы"], ["Тренды"]]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, не смог обработать твое сообщение 😓 Попробуй ещё раз!", reply_markup=reply_markup)
         return
 
-    base_keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги"], ["/stats"]]
-    edit_keyboard = [["Пост", "Сторис", "Редактировать"], ["Аналитика", "Стратегия/Контент-план"], ["Хэштеги", "/stats"]]
+    base_keyboard = [["Пост", "Сторис", "Аналитика"], ["Стратегия/Контент-план", "Хэштеги", "ИИ-вопросы"], ["Тренды"]]
+    edit_keyboard = [["Пост", "Сторис", "Редактировать"], ["Аналитика", "Стратегия/Контент-план"], ["Хэштеги", "Тренды"]]
     reply_markup = ReplyKeyboardMarkup(base_keyboard, resize_keyboard=True)
     
     style_keyboard = [["Формальный", "Дружелюбный", "Саркастичный"]]
@@ -414,20 +409,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             reply_markup = ReplyKeyboardMarkup(edit_keyboard if user_id in user_data and "last_result" in user_data[user_id] else base_keyboard, resize_keyboard=True)
             await update.message.reply_text(f"Привет, {user_names[user_id]}! Я твой SMM-помощник 😎 Выбери, что я сделаю для тебя:", reply_markup=reply_markup)
         return
-    elif message == "/stats":
-        stats = user_stats[user_id]
-        reply_markup = ReplyKeyboardMarkup(edit_keyboard if user_id in user_data and "last_result" in user_data[user_id] else base_keyboard, resize_keyboard=True)
-        await update.message.reply_text(
-            f"{user_names.get(user_id, 'Друг')}, твоя статистика:\n"
-            f"Постов — {stats['posts']}\n"
-            f"Сторис — {stats['stories']}\n"
-            f"Хэштегов — {stats['hashtags']}\n"
-            f"Стратегий — {stats['strategies']}\n"
-            f"Контент-планов — {stats['content_plans']}\n"
-            f"Аналитики — {stats['analytics']} 😎",
-            reply_markup=reply_markup
-        )
-        return
     elif message == "/lang":
         user_data[user_id] = {"mode": "lang", "stage": "choose_lang"}
         await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, выбери язык:", reply_markup=lang_reply_markup)
@@ -440,10 +421,16 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
 
         if mode == "name" and stage == "ask_name":
             user_names[user_id] = message.capitalize()
+            user_data[user_id]["mode"] = "niche"
+            user_data[user_id]["stage"] = "ask_niche"
+            await update.message.reply_text(f"Отлично, {user_names[user_id]}! В какой нише ты работаешь? (Например, 'кофе', 'фитнес', 'образование')")
+            return
+        elif mode == "niche" and stage == "ask_niche":
+            user_data[user_id]["niche"] = message
             del user_data[user_id]
             await save_data()
             reply_markup = ReplyKeyboardMarkup(base_keyboard, resize_keyboard=True)
-            await update.message.reply_text(f"Отлично, {user_names[user_id]}! Теперь я знаю, как к тебе обращаться 😊 Выбери, что я сделаю для тебя:", reply_markup=reply_markup)
+            await update.message.reply_text(f"Отлично, {user_names[user_id]}! Теперь я знаю твою нишу 😊 Выбери, что я сделаю для тебя:", reply_markup=reply_markup)
             return
         elif mode == "lang" and stage == "choose_lang":
             lang_map = {"русский (ru)": "ru", "english (en)": "en"}
@@ -465,7 +452,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 response = generate_text(user_id, "hashtags")
                 reply_markup = ReplyKeyboardMarkup(edit_keyboard if user_id in user_data and "last_result" in user_data[user_id] else base_keyboard, resize_keyboard=True)
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твои хэштеги! 😎\n{response}", reply_markup=reply_markup)
-                user_stats[user_id]["hashtags"] += 1
                 await save_data()
                 del user_data[user_id]
             elif mode == "analytics":
@@ -509,8 +495,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 response = generate_text(user_id, mode)
                 hashtags = generate_hashtags(user_data[user_id]["topic"])
                 user_data[user_id]["last_result"] = f"{response}\n\n{hashtags}"
-                user_stats[user_id]["posts" if mode == "post" else "stories"] += 1
-                await save_data()
                 user_data[user_id] = {"mode": mode, "last_result": user_data[user_id]["last_result"], "style": user_data[user_id]["style"], "template": user_data[user_id]["template"], "topic": user_data[user_id]["topic"], "preferences": user_data[user_id]["preferences"]}
                 reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
                 await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, вот твой {mode}! 🔥\n{response}\n\n{hashtags}\n\nНе нравится? Выбери 'Редактировать'!", reply_markup=reply_markup)
@@ -563,7 +547,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             with open(pdf_file, "rb") as f_pdf:
                 await update.message.reply_document(document=f_pdf, filename="strategy.pdf", caption=f"🚀 {user_names.get(user_id, 'Друг')}, вот твоя стратегия!")
             hashtags = generate_hashtags(user_data[user_id]["topic"])
-            user_stats[user_id]["strategies"] += 1
             await save_data()
             os.remove(pdf_file)
             user_data[user_id] = {
@@ -599,7 +582,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
             hashtags = generate_hashtags(user_data[user_id]["topic"])
             reply_markup = ReplyKeyboardMarkup(base_keyboard, resize_keyboard=True)
             await update.message.reply_text(f"🎉 И немного хэштегов:\n{hashtags}", reply_markup=reply_markup)
-            user_stats[user_id]["content_plans"] += 1
             await save_data()
             os.remove(pdf_file)
             del user_data[user_id]
@@ -618,7 +600,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 hashtags = generate_hashtags(user_data[user_id]["topic"])
                 reply_markup = ReplyKeyboardMarkup(edit_keyboard if user_id in user_data and "last_result" in user_data[user_id] else base_keyboard, resize_keyboard=True)
                 await update.message.reply_text(f"📈 {user_names.get(user_id, 'Друг')}, вот твоя аналитика!\n{response}\n\n{hashtags}", reply_markup=reply_markup)
-                user_stats[user_id]["analytics"] += 1
                 await save_data()
                 del user_data[user_id]
             elif re.match(r'^\d+\s+\d+$', message):
@@ -629,7 +610,6 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
                 hashtags = generate_hashtags(user_data[user_id]["topic"])
                 reply_markup = ReplyKeyboardMarkup(edit_keyboard if user_id in user_data and "last_result" in user_data[user_id] else base_keyboard, resize_keyboard=True)
                 await update.message.reply_text(f"📈 {user_names.get(user_id, 'Друг')}, вот твоя аналитика!\n{response}\n\n{hashtags}", reply_markup=reply_markup)
-                user_stats[user_id]["analytics"] += 1
                 await save_data()
                 del user_data[user_id]
             else:
@@ -660,6 +640,48 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         elif message == "хэштеги":
             user_data[user_id] = {"mode": "hashtags", "stage": "topic", "preferences": user_data.get(user_id, {}).get("preferences", {"topics": [], "styles": []})}
             await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, для какой темы нужны хэштеги? 🤓")
+        elif message == "ии-вопросы":
+            user_data[user_id] = {"mode": "ai_questions", "stage": "ask_question"}
+            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, задай свой вопрос, и я постараюсь помочь!")
+            return
+        elif mode == "ai_questions" and stage == "ask_question":
+            question = message
+            await update.message.reply_text(f"⏳ Генерирую ответ на твой вопрос...")
+            headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
+            payload = {
+                "model": "meta-llama/Llama-3-8b-chat-hf",
+                "messages": [{"role": "user", "content": f"Ответь на вопрос: {question}"}],
+                "max_tokens": 1000,
+                "temperature": 0.7
+            }
+            response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
+            if response.status_code == 200:
+                answer = response.json()["choices"][0]["message"]["content"].strip()
+                await update.message.reply_text(f"Вот ответ на твой вопрос:\n{answer}")
+            else:
+                await update.message.reply_text("Не удалось получить ответ 😓 Попробуй ещё раз!")
+            del user_data[user_id]
+            return
+        elif message == "тренды":
+            user_data[user_id] = {"mode": "trends", "stage": "ask_trend_topic"}
+            await update.message.reply_text(f"{user_names.get(user_id, 'Друг')}, для какой темы анализировать тренды? (Например, 'кофе', 'фитнес')")
+            return
+        elif mode == "trends" and stage == "ask_trend_topic":
+            topic = message
+            try:
+                pytrends = TrendReq(hl='ru-RU', tz=360)
+                pytrends.build_payload([topic], cat=0, timeframe='today 3-m', geo='RU')
+                trends_data = pytrends.interest_over_time()
+                if not trends_data.empty:
+                    trend_info = f"Тренд за 3 месяца: интерес к '{topic}' в России {'растёт' if trends_data[topic].iloc[-1] > trends_data[topic].iloc[0] else 'падает или стабилен'}."
+                else:
+                    trend_info = "Нет данных о трендах."
+                await update.message.reply_text(f"📊 Вот анализ трендов для '{topic}':\n{trend_info}")
+            except Exception as e:
+                logger.error(f"Ошибка pytrends: {e}")
+                await update.message.reply_text("Не удалось получить данные о трендах 😓 Попробуй позже!")
+            del user_data[user_id]
+            return
         elif message == "редактировать" and user_id in user_data and "last_result" in user_data[user_id]:
             user_data[user_id]["stage"] = "edit_request"
             reply_markup = ReplyKeyboardMarkup(edit_keyboard, resize_keyboard=True)
@@ -737,7 +759,6 @@ async def main():
     web_app = web.Application()
     web_app.router.add_post('/webhook', webhook)
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stats", handle_message))
     app.add_handler(CommandHandler("lang", handle_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
