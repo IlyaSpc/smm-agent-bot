@@ -243,6 +243,7 @@ async def webhook(request):
 async def main():
     try:
         logger.info("Инициализация приложения...")
+        await app.initialize()  # Инициализируем Application
         app.add_handler(CommandHandler("start", handle_message))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         web_app = web.Application()
