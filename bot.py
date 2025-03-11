@@ -101,13 +101,13 @@ async def generate_text(user_id, mode):
         logger.error(f"Ошибка генерации текста: {e}")
         return "Сервер не отвечает 😓"
 
-# Генерация идей
-def generate_ideas(topic, style="саркастичный", user_id=None):
+# Генерация идей (теперь асинхронная)
+async def generate_ideas(topic, style="саркастичный", user_id=None):
     logger.info(f"Генерация идей для topic={topic}, user_id={user_id}")
     niche = user_data.get(user_id, {}).get("niche", "не_указано")
     mode = user_data[user_id].get("mode", "post") if user_id else "post"
     prompt_key = "reels" if mode == "reels" else "ideas"
-    base_prompt = asyncio.run(get_prompt_from_drive(prompt_key))
+    base_prompt = await get_prompt_from_drive(prompt_key)
     if "не найден" in base_prompt or "ошибка" in base_prompt.lower():
         logger.error(f"Промт для '{prompt_key}' не загружен")
         return ["1. Ошибка: промт для идей не загружен!"]
@@ -171,7 +171,12 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
     elif mode == "niche" and stage == "ask_niche":
         user_data[user_id]["niche"] = message
         user_data[user_id]["mode"] = "main"
+        user_data[user_id]["stage"] = None  # Сбрасываем stage после ниши
         await update.message.reply_text(f"Круто, ниша '{message}'! Что делаем?", reply_markup=reply_markup)
+    elif message == "пост":
+        user_data[user_id]["mode"] = "post"
+        user_data[user_id]["stage"] = "topic"
+        await update.message.reply_text(f"О чём написать пост?")
     elif mode == "post" and stage == "topic":
         user_data[user_id]["topic"] = message.replace(" ", "_")
         user_data[user_id]["stage"] = "style"
@@ -186,7 +191,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         await update.message.reply_text(f"Выбери шаблон:", reply_markup=ReplyKeyboardMarkup([["Стандарт", "Объявление"], ["Опрос", "Кейс"]], resize_keyboard=True))
     elif mode == "post" and stage == "template":
         user_data[user_id]["template"] = message
-        ideas = generate_ideas(user_data[user_id]["topic"], user_data[user_id]["style"], user_id)
+        ideas = await generate_ideas(user_data[user_id]["topic"], user_data[user_id]["style"], user_id)
         user_data[user_id]["stage"] = "ideas"
         await update.message.reply_text(f"Вот идеи:\n" + "\n".join(ideas) + "\nВыбери номер (1, 2, 3)!")
     elif mode == "post" and stage == "ideas":
@@ -200,7 +205,7 @@ async def handle_message(update: Update, context: ContextTypes, is_voice=False):
         await update.message.reply_text(f"О чём снять Reels?")
     elif mode == "reels" and stage == "topic":
         user_data[user_id]["topic"] = message.replace(" ", "_")
-        ideas = generate_ideas(user_data[user_id]["topic"], "дружелюбный", user_id)
+        ideas = await generate_ideas(user_data[user_id]["topic"], "дружелюбный", user_id)
         await update.message.reply_text(f"Вот идеи для Reels:\n" + "\n".join(ideas), reply_markup=reply_markup)
     elif message == "конкуренты":
         user_data[user_id]["mode"] = "competitor_analysis"
