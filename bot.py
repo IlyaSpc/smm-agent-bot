@@ -246,17 +246,36 @@ async def webhook(request: web.Request) -> web.Response:
 async def health_check(request: web.Request) -> web.Response:
     return web.Response(text="OK", status=200)
 
-async def main() -> web.Application:
+async def main() -> None:
+    """Инициализация и запуск бота с веб-сервером."""
+    # Инициализация Telegram-бота
+    await app.initialize()
+    await app.start()
     await load_prompts()
-    app.add_handler(CommandHandler("start", handle_message))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Настройка веб-приложения
     web_app = web.Application()
     web_app.router.add_post('/webhook', webhook)
     web_app.router.add_get('/health', health_check)
-    logger.info(f"Сервер готов, слушает порт {Config.PORT}")
-    return web_app
+
+    # Регистрация обработчиков
+    app.add_handler(CommandHandler("start", handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Запуск веб-сервера
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', Config.PORT)
+    await site.start()
+    logger.info(f"Сервер запущен на порту {Config.PORT}")
+
+    # Держим цикл открытым
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await app.stop()
+        await runner.cleanup()
 
 if __name__ == "__main__":
     logger.info("Запуск бота...")
-    asyncio.run(app.initialize())
-    web.run_app(main(), host="0.0.0.0", port=Config.PORT)
+    asyncio.run(main())
