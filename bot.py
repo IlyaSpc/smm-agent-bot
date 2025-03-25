@@ -123,15 +123,16 @@ async def generate_ideas(topic, style="саркастичный", user_id=None):
     payload = {
         "model": "meta-llama/Llama-3-8b-chat-hf",
         "messages": [{"role": "user", "content": full_prompt}],
-        "max_tokens": 500,  # Увеличиваем для трёх идей
-        "temperature": 0.7
+        "max_tokens": 500,
+        "temperature": 0.5
     }
     try:
         response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
             raw_text = response.json()["choices"][0]["message"]["content"].strip()
-            ideas = [line.strip() for line in raw_text.split("\n") if line.strip() and not line.lower().startswith(("я готов", "вот три", "1.", "2.", "3."))]
-            ideas = [idea for idea in ideas if len(idea.split()) >= 5][:3]  # Фильтруем короткие и берём 3
+            logger.info(f"Сырой ответ от API: {raw_text}")
+            ideas = [line.strip() for line in raw_text.split("\n") if line.strip() and re.match(r'^\d+\.\s*.+', line)]
+            ideas = [re.sub(r'^\d+\.\s*', '', idea) for idea in ideas][:3]
             if len(ideas) < 3:
                 ideas.extend([f"Искры гениальности кончились — попробуй ещё раз!" for _ in range(len(ideas), 3)])
             result = [f"{i+1}. {idea}" for i, idea in enumerate(ideas)]
@@ -267,9 +268,13 @@ async def webhook(request):
             logger.info(f"Обработка обновления: {update}")
             await app.process_update(update)
             logger.info("Обновление обработано успешно")
+            return web.Response(text="OK", status=200)
         else:
             logger.warning("Получен пустой update")
-        return web.Response(text="OK", status=200)
+            return web.Response(text="No update", status=400)
+    except json.JSONDecodeError as e:
+        logger.error(f"Ошибка декодирования JSON: {e}")
+        return web.Response(text="Invalid JSON", status=400)
     except Exception as e:
         logger.error(f"Ошибка в webhook: {e}", exc_info=True)
         return web.Response(text="Error", status=500)
