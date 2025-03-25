@@ -8,7 +8,6 @@ import re
 import asyncio
 from aiohttp import web
 import json
-from functools import partial
 
 # Логирование
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -43,11 +42,11 @@ STYLE_KEYBOARD = ReplyKeyboardMarkup([["Формальный", "Дружелюб
 TONE_KEYBOARD = ReplyKeyboardMarkup([["Миллениалы", "Бизнес-аудитория", "Gen Z"]], resize_keyboard=True)
 TEMPLATE_KEYBOARD = ReplyKeyboardMarkup([["Стандарт", "Объявление"], ["Опрос", "Кейс"]], resize_keyboard=True)
 
-# Кэш промтов
+# Кэш промтов и обработанных обновлений
 PROMPTS: Dict[str, str] = {}
+PROCESSED_UPDATES: set = set()
 
 async def load_prompts() -> None:
-    """Загрузка промтов при старте."""
     async with aiohttp.ClientSession() as session:
         async with session.get(Config.PROMPTS_URL) as response:
             if response.status == 200:
@@ -57,10 +56,9 @@ async def load_prompts() -> None:
                 logger.error(f"Ошибка загрузки промтов: {response.status}")
 
 async def get_prompt(prompt_name: str) -> str:
-    """Получение промта из кэша."""
     return PROMPTS.get(prompt_name, f"Ошибка: промт '{prompt_name}' не найден")
 
-# Универсальная функция для API
+# Универсальный API-вызов
 async def call_together_api(prompt: str, max_tokens: int = 500) -> str:
     headers = {"Authorization": f"Bearer {Config.TOGETHER_API_KEY}", "Content-Type": "application/json"}
     payload = {
@@ -74,14 +72,16 @@ async def call_together_api(prompt: str, max_tokens: int = 500) -> str:
             async with session.post(Config.TOGETHER_API_URL, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status == 200:
                     data = await response.json()
-                    return data["choices"][0]["message"]["content"].strip()
+                    raw_text = data["choices"][0]["message"]["content"].strip()
+                    logger.info(f"Сырой ответ API: {raw_text[:100]}...")
+                    return raw_text
                 logger.error(f"Ошибка API Together: {response.status} - {await response.text()}")
                 return "Ошибка API"
     except Exception as e:
         logger.error(f"Ошибка вызова Together API: {e}")
         return "Сервер не отвечает 😓"
 
-# Генерация текста и идей
+# Генерация контента
 async def generate_content(user_id: int, mode: str, topic: str, style: str = "дружелюбный") -> str:
     user_data = app.bot_data.setdefault(user_id, {})
     niche = user_data.get("niche", "не_указано")
@@ -90,8 +90,10 @@ async def generate_content(user_id: int, mode: str, topic: str, style: str = "д
         return prompt_template
 
     try:
+        # Добавляем контекст ниши в промт
+        context = f"Контекст: ниша '{niche}', тема '{topic}'. Пиши только на русском языке, без английских слов."
         if mode in {"post", "strategy", "competitor_analysis", "ab_testing", "hashtags"}:
-            full_prompt = prompt_template.format(
+            full_prompt = context + "\n" + prompt_template.format(
                 topic=topic.replace('_', ' '),
                 style=style,
                 tone=user_data.get("tone", "универсальный"),
@@ -104,23 +106,13 @@ async def generate_content(user_id: int, mode: str, topic: str, style: str = "д
             )
             return await call_together_api(full_prompt, 2000 if mode == "strategy" else 500)
         elif mode in {"ideas", "reels", "stories"}:
-            full_prompt = prompt_template.format(topic=topic.replace('_', ' '), style=style, niche=niche)
+            full_prompt = context + "\n" + prompt_template.format(topic=topic.replace('_', ' '), style=style, niche=niche)
             raw_text = await call_together_api(full_prompt)
-            ideas = []
-            current_idea = ""
-            for line in raw_text.split("\n"):
-                line = line.strip()
-                if line.startswith("**Idea") or re.match(r'^\d+\.\s*.+', line):
-                    if current_idea:
-                        ideas.append(current_idea.strip())
-                    current_idea = line
-                elif line and current_idea:
-                    current_idea += " " + line
-            if current_idea:
-                ideas.append(current_idea.strip())
-            ideas = [re.sub(r'^\d+\.\s*|\*\*Idea \d+:? "?[^"]*"?\s*-*\s*', '', idea) for idea in ideas][:3]
-            if len(ideas) < 3:
-                ideas.extend([f"Искры гениальности кончились — попробуй ещё раз!" for _ in range(3 - len(ideas))])
+            # Упрощённый парсинг идей
+            ideas = [line.strip() for line in raw_text.split("\n") if line.strip() and not line.startswith("#")]
+            ideas = [re.sub(r'^\d+\.\s*|\*\*.*\*\*\s*', '', idea) for idea in ideas if len(idea.split()) > 5][:3]
+            if not ideas:
+                ideas = ["Искры гениальности кончились — попробуй ещё раз!"]
             return "\n".join(f"{i+1}. {idea}" for i, idea in enumerate(ideas))
     except KeyError as e:
         logger.error(f"Ошибка форматирования промта: {e}")
@@ -132,6 +124,7 @@ STATES: Dict[str, Dict[str, Any]] = {
     "start": {"text": "Привет! Как тебя зовут?", "next": "name"},
     "name": {"text": lambda uid: f"Отлично, {app.bot_data[uid]['name']}! В какой нише работаешь?", "next": "niche"},
     "niche": {"text": lambda uid: f"Круто, ниша '{app.bot_data[uid]['niche']}'! Что делаем?", "next": "main", "keyboard": BASE_KEYBOARD},
+    "main": {"text": "Выбери действие!", "keyboard": BASE_KEYBOARD},
     "post_topic": {"text": "О чём написать пост?", "next": "post_style"},
     "post_style": {"text": "Какой стиль текста?", "next": "post_tone", "keyboard": STYLE_KEYBOARD},
     "post_tone": {"text": "Выбери тон для аудитории:", "next": "post_template", "keyboard": TONE_KEYBOARD},
@@ -153,6 +146,7 @@ STATES: Dict[str, Dict[str, Any]] = {
     "strategy_generate": {"text": lambda uid: f"Вот стратегия:\n{app.bot_data[uid]['strategy']}", "next": "main", "keyboard": BASE_KEYBOARD},
     "hashtags_topic": {"text": "По какой теме хэштеги?", "next": "hashtags_generate"},
     "hashtags_generate": {"text": lambda uid: f"Вот хэштеги:\n{app.bot_data[uid]['hashtags']}", "next": "main", "keyboard": BASE_KEYBOARD},
+    "analytics": {"text": "Функция 'Аналитика' пока в разработке. Скоро будет!", "next": "main", "keyboard": BASE_KEYBOARD},
 }
 
 async def handle_message(update: Update, context: ContextTypes) -> None:
@@ -176,6 +170,7 @@ async def handle_message(update: Update, context: ContextTypes) -> None:
             "пост": "post_topic",
             "сторис": "stories_topic",
             "reels": "reels_topic",
+            "аналитика": "analytics",
             "конкуренты": "competitors_keyword",
             "а/б тест": "ab_test_topic",
             "стратегия/контент-план": "strategy_topic",
@@ -194,7 +189,9 @@ async def handle_message(update: Update, context: ContextTypes) -> None:
         elif state == "post_generate":
             pass
         else:
-            user_data[state.split("_")[1]] = message
+            user_data[state.split("_")[1]] = message.lower() if state == "post_tone" else message
+            if state == "post_template":
+                user_data["ideas"] = await generate_content(user_id, "ideas", user_data["topic"], user_data["style"])
     elif state in {"stories_topic", "reels_topic"}:
         user_data["topic"] = message.replace(" ", "_")
         user_data["ideas"] = await generate_content(user_id, "stories" if state == "stories_topic" else "reels", user_data["topic"])
@@ -223,6 +220,11 @@ async def webhook(request: web.Request) -> web.Response:
     try:
         logger.info("Получен запрос на /webhook")
         data = await request.json()
+        update_id = data.get("update_id")
+        if update_id in PROCESSED_UPDATES:
+            logger.warning(f"Дубликат update_id: {update_id}")
+            return web.Response(text="Duplicate", status=200)
+        PROCESSED_UPDATES.add(update_id)
         update = Update.de_json(data, app.bot)
         if update:
             await app.process_update(update)
