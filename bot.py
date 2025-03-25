@@ -48,7 +48,7 @@ PROCESSED_UPDATES: set = set()
 
 async def load_prompts() -> None:
     async with aiohttp.ClientSession() as session:
-        async with جلسه.get(Config.PROMPTS_URL) as response:
+        async with session.get(Config.PROMPTS_URL) as response:
             if response.status == 200:
                 raw_data = await response.read()
                 logger.info(f"Сырой ответ от Google Drive: {raw_data[:100]}...")
@@ -95,7 +95,6 @@ async def generate_content(user_id: int, mode: str, topic: str, style: str = "д
         return prompt_template
 
     try:
-        # Ниша как направление мышления, а не часть текста
         context = f"Ты работаешь в нише '{niche}' — это область деятельности, которая задаёт направление твоего мышления (например, автоматизация, чат-боты, воронки продаж). Сфокусируйся на теме '{topic}' и не упоминай нишу в тексте напрямую. Пиши только на русском языке, без английских слов."
         if mode in {"post", "strategy", "competitor_analysis", "ab_testing", "hashtags"}:
             full_prompt = context + "\n" + prompt_template.format(
