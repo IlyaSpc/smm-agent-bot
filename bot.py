@@ -18,7 +18,7 @@ class Config:
     TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
     TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
-    PROMPTS_URL = "https://drive.google.com/uc?export=download&id=1byy2KMAGV3Thg0MwH94PMQEjoA3BwqWK"
+    PROMPTS_URL = "https://drive.usercontent.google.com/download?id=1byy2KMAGV3Thg0MwH94PMQEjoA3BwqWK&export=download"
     PORT = int(os.getenv("PORT", 10000))
 
     @classmethod
@@ -47,13 +47,21 @@ PROMPTS: Dict[str, str] = {}
 PROCESSED_UPDATES: set = set()
 
 async def load_prompts() -> None:
+    """Загрузка промтов с Google Drive с обработкой бинарного ответа."""
     async with aiohttp.ClientSession() as session:
         async with session.get(Config.PROMPTS_URL) as response:
             if response.status == 200:
-                PROMPTS.update(await response.json())
-                logger.info("Промты успешно загружены")
+                raw_data = await response.read()  # Читаем как байты
+                logger.info(f"Сырой ответ от Google Drive: {raw_data[:100]}...")
+                try:
+                    PROMPTS.update(json.loads(raw_data.decode('utf-8')))  # Декодируем и парсим
+                    logger.info("Промты успешно загружены")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Ошибка декодирования JSON: {e}")
+                    raise ValueError("Не удалось разобрать prompts.json из Google Drive")
             else:
-                logger.error(f"Ошибка загрузки промтов: {response.status}")
+                logger.error(f"Ошибка загрузки промтов: {response.status} - {await response.text()}")
+                raise ValueError(f"Не удалось загрузить prompts.json: {response.status}")
 
 async def get_prompt(prompt_name: str) -> str:
     return PROMPTS.get(prompt_name, f"Ошибка: промт '{prompt_name}' не найден")
@@ -90,7 +98,6 @@ async def generate_content(user_id: int, mode: str, topic: str, style: str = "д
         return prompt_template
 
     try:
-        # Добавляем контекст ниши в промт
         context = f"Контекст: ниша '{niche}', тема '{topic}'. Пиши только на русском языке, без английских слов."
         if mode in {"post", "strategy", "competitor_analysis", "ab_testing", "hashtags"}:
             full_prompt = context + "\n" + prompt_template.format(
@@ -108,7 +115,6 @@ async def generate_content(user_id: int, mode: str, topic: str, style: str = "д
         elif mode in {"ideas", "reels", "stories"}:
             full_prompt = context + "\n" + prompt_template.format(topic=topic.replace('_', ' '), style=style, niche=niche)
             raw_text = await call_together_api(full_prompt)
-            # Упрощённый парсинг идей
             ideas = [line.strip() for line in raw_text.split("\n") if line.strip() and not line.startswith("#")]
             ideas = [re.sub(r'^\d+\.\s*|\*\*.*\*\*\s*', '', idea) for idea in ideas if len(idea.split()) > 5][:3]
             if not ideas:
