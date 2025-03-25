@@ -48,7 +48,7 @@ PROCESSED_UPDATES: set = set()
 
 async def load_prompts() -> None:
     async with aiohttp.ClientSession() as session:
-        async with session.get(Config.PROMPTS_URL) as response:
+        async with جلسه.get(Config.PROMPTS_URL) as response:
             if response.status == 200:
                 raw_data = await response.read()
                 logger.info(f"Сырой ответ от Google Drive: {raw_data[:100]}...")
@@ -95,14 +95,14 @@ async def generate_content(user_id: int, mode: str, topic: str, style: str = "д
         return prompt_template
 
     try:
-        context = f"Контекст: ниша '{niche}', тема '{topic}'. Пиши только на русском языке, без английских слов."
+        # Ниша как направление мышления, а не часть текста
+        context = f"Ты работаешь в нише '{niche}' — это область деятельности, которая задаёт направление твоего мышления (например, автоматизация, чат-боты, воронки продаж). Сфокусируйся на теме '{topic}' и не упоминай нишу в тексте напрямую. Пиши только на русском языке, без английских слов."
         if mode in {"post", "strategy", "competitor_analysis", "ab_testing", "hashtags"}:
             full_prompt = context + "\n" + prompt_template.format(
                 topic=topic.replace('_', ' '),
                 style=style,
                 tone=user_data.get("tone", "универсальный"),
                 template=user_data.get("template", "стандарт"),
-                niche=niche,
                 client=user_data.get("client", "не_указано"),
                 channels=user_data.get("channels", "не_указано"),
                 result=user_data.get("result", "не_указано"),
@@ -110,7 +110,7 @@ async def generate_content(user_id: int, mode: str, topic: str, style: str = "д
             )
             return await call_together_api(full_prompt, 2000 if mode == "strategy" else 500)
         elif mode in {"ideas", "reels", "stories"}:
-            full_prompt = context + "\n" + prompt_template.format(topic=topic.replace('_', ' '), style=style, niche=niche)
+            full_prompt = context + "\n" + prompt_template.format(topic=topic.replace('_', ' '), style=style)
             raw_text = await call_together_api(full_prompt)
             ideas = [line.strip() for line in raw_text.split("\n") if line.strip() and not line.startswith("#")]
             ideas = [re.sub(r'^\d+\.\s*|\*\*.*\*\*\s*', '', idea) for idea in ideas if len(idea.split()) > 5][:3]
@@ -161,7 +161,7 @@ async def handle_message(update: Update, context: ContextTypes) -> None:
     state = user_data["state"]
 
     if message == "/start":
-        user_data.clear()  # Сбрасываем данные при рестарте
+        user_data.clear()
         user_data["state"] = "start"
         state_info = STATES["start"]
         await update.message.reply_text(state_info["text"])
@@ -170,7 +170,6 @@ async def handle_message(update: Update, context: ContextTypes) -> None:
 
     state_info = STATES.get(state, {"text": "Выбери действие!", "keyboard": BASE_KEYBOARD})
 
-    # Сохраняем данные перед переходом
     if state in {"name", "niche"}:
         user_data[state] = message.capitalize() if state == "name" else message
     elif state.startswith("post_"):
@@ -215,12 +214,10 @@ async def handle_message(update: Update, context: ContextTypes) -> None:
             await update.message.reply_text(state_info["text"], reply_markup=state_info.get("keyboard"))
             return
 
-    # Переход к следующему состоянию
     next_state = state_info.get("next", "main")
     user_data["state"] = next_state
     next_info = STATES.get(next_state, {"text": "Выбери действие!", "keyboard": BASE_KEYBOARD})
     
-    # Формируем текст с учётом сохранённых данных
     if callable(next_info["text"]):
         text = next_info["text"](user_id)
     else:
