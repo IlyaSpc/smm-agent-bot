@@ -47,14 +47,13 @@ PROMPTS: Dict[str, str] = {}
 PROCESSED_UPDATES: set = set()
 
 async def load_prompts() -> None:
-    """Загрузка промтов с Google Drive с обработкой бинарного ответа."""
     async with aiohttp.ClientSession() as session:
         async with session.get(Config.PROMPTS_URL) as response:
             if response.status == 200:
-                raw_data = await response.read()  # Читаем как байты
+                raw_data = await response.read()
                 logger.info(f"Сырой ответ от Google Drive: {raw_data[:100]}...")
                 try:
-                    PROMPTS.update(json.loads(raw_data.decode('utf-8')))  # Декодируем и парсим
+                    PROMPTS.update(json.loads(raw_data.decode('utf-8')))
                     logger.info("Промты успешно загружены")
                 except json.JSONDecodeError as e:
                     logger.error(f"Ошибка декодирования JSON: {e}")
@@ -66,7 +65,6 @@ async def load_prompts() -> None:
 async def get_prompt(prompt_name: str) -> str:
     return PROMPTS.get(prompt_name, f"Ошибка: промт '{prompt_name}' не найден")
 
-# Универсальный API-вызов
 async def call_together_api(prompt: str, max_tokens: int = 500) -> str:
     headers = {"Authorization": f"Bearer {Config.TOGETHER_API_KEY}", "Content-Type": "application/json"}
     payload = {
@@ -89,7 +87,6 @@ async def call_together_api(prompt: str, max_tokens: int = 500) -> str:
         logger.error(f"Ошибка вызова Together API: {e}")
         return "Сервер не отвечает 😓"
 
-# Генерация контента
 async def generate_content(user_id: int, mode: str, topic: str, style: str = "дружелюбный") -> str:
     user_data = app.bot_data.setdefault(user_id, {})
     niche = user_data.get("niche", "не_указано")
@@ -128,8 +125,8 @@ async def generate_content(user_id: int, mode: str, topic: str, style: str = "д
 # Машина состояний
 STATES: Dict[str, Dict[str, Any]] = {
     "start": {"text": "Привет! Как тебя зовут?", "next": "name"},
-    "name": {"text": lambda uid: f"Отлично, {app.bot_data[uid]['name']}! В какой нише работаешь?", "next": "niche"},
-    "niche": {"text": lambda uid: f"Круто, ниша '{app.bot_data[uid]['niche']}'! Что делаем?", "next": "main", "keyboard": BASE_KEYBOARD},
+    "name": {"text": "В какой нише работаешь?", "next": "niche"},
+    "niche": {"text": "Что делаем?", "next": "main", "keyboard": BASE_KEYBOARD},
     "main": {"text": "Выбери действие!", "keyboard": BASE_KEYBOARD},
     "post_topic": {"text": "О чём написать пост?", "next": "post_style"},
     "post_style": {"text": "Какой стиль текста?", "next": "post_tone", "keyboard": STYLE_KEYBOARD},
@@ -164,6 +161,7 @@ async def handle_message(update: Update, context: ContextTypes) -> None:
     state = user_data["state"]
 
     if message == "/start":
+        user_data.clear()  # Сбрасываем данные при рестарте
         user_data["state"] = "start"
         state_info = STATES["start"]
         await update.message.reply_text(state_info["text"])
@@ -171,23 +169,9 @@ async def handle_message(update: Update, context: ContextTypes) -> None:
         return
 
     state_info = STATES.get(state, {"text": "Выбери действие!", "keyboard": BASE_KEYBOARD})
-    if state == "main":
-        next_state = {
-            "пост": "post_topic",
-            "сторис": "stories_topic",
-            "reels": "reels_topic",
-            "аналитика": "analytics",
-            "конкуренты": "competitors_keyword",
-            "а/б тест": "ab_test_topic",
-            "стратегия/контент-план": "strategy_topic",
-            "хэштеги": "hashtags_topic"
-        }.get(message)
-        if next_state:
-            user_data["state"] = next_state
-            state_info = STATES[next_state]
-            await update.message.reply_text(state_info["text"], reply_markup=state_info.get("keyboard"))
-            return
-    elif state in {"name", "niche"}:
+
+    # Сохраняем данные перед переходом
+    if state in {"name", "niche"}:
         user_data[state] = message.capitalize() if state == "name" else message
     elif state.startswith("post_"):
         if state == "post_ideas" and message.isdigit() and 1 <= int(message) <= 3:
@@ -214,11 +198,38 @@ async def handle_message(update: Update, context: ContextTypes) -> None:
     elif state == "hashtags_topic":
         user_data["topic"] = message.replace(" ", "_")
         user_data["hashtags"] = await generate_content(user_id, "hashtags", user_data["topic"])
+    elif state == "main":
+        next_state = {
+            "пост": "post_topic",
+            "сторис": "stories_topic",
+            "reels": "reels_topic",
+            "аналитика": "analytics",
+            "конкуренты": "competitors_keyword",
+            "а/б тест": "ab_test_topic",
+            "стратегия/контент-план": "strategy_topic",
+            "хэштеги": "hashtags_topic"
+        }.get(message)
+        if next_state:
+            user_data["state"] = next_state
+            state_info = STATES[next_state]
+            await update.message.reply_text(state_info["text"], reply_markup=state_info.get("keyboard"))
+            return
 
+    # Переход к следующему состоянию
     next_state = state_info.get("next", "main")
     user_data["state"] = next_state
     next_info = STATES.get(next_state, {"text": "Выбери действие!", "keyboard": BASE_KEYBOARD})
-    text = next_info["text"](user_id) if callable(next_info["text"]) else next_info["text"]
+    
+    # Формируем текст с учётом сохранённых данных
+    if callable(next_info["text"]):
+        text = next_info["text"](user_id)
+    else:
+        text = next_info["text"]
+        if next_state == "niche":
+            text = f"Отлично, {user_data.get('name', 'друг')}! В какой нише работаешь?"
+        elif next_state == "main":
+            text = f"Круто, ниша '{user_data.get('niche', 'не указана')}'! Что делаем?"
+
     await update.message.reply_text(text, reply_markup=next_info.get("keyboard"))
 
 # Webhook
@@ -247,29 +258,23 @@ async def health_check(request: web.Request) -> web.Response:
     return web.Response(text="OK", status=200)
 
 async def main() -> None:
-    """Инициализация и запуск бота с веб-сервером."""
-    # Инициализация Telegram-бота
     await app.initialize()
     await app.start()
     await load_prompts()
 
-    # Настройка веб-приложения
     web_app = web.Application()
     web_app.router.add_post('/webhook', webhook)
     web_app.router.add_get('/health', health_check)
 
-    # Регистрация обработчиков
     app.add_handler(CommandHandler("start", handle_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Запуск веб-сервера
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', Config.PORT)
     await site.start()
     logger.info(f"Сервер запущен на порту {Config.PORT}")
 
-    # Держим цикл открытым
     try:
         await asyncio.Event().wait()
     finally:
