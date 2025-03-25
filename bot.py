@@ -95,7 +95,8 @@ async def generate_content(user_id: int, mode: str, topic: str, style: str = "д
         return prompt_template
 
     try:
-        context = f"Ты работаешь в нише '{niche}' — это область деятельности, которая задаёт направление твоего мышления (например, автоматизация, чат-боты, воронки продаж). Сфокусируйся на теме '{topic}' и не упоминай нишу в тексте напрямую. Пиши только на русском языке, без английских слов."
+        # Уточняем контекст: ниша как направление, тема с фильтром на неоднозначность
+        context = f"Ты работаешь в нише '{niche}' — это область деятельности, которая задаёт направление твоего мышления (например, автоматизация, чат-боты, воронки продаж, технологии). Сфокусируйся на теме '{topic}'. Если в теме есть слово 'авторынок', интерпретируй его как 'автомобильный рынок' (продажа машин, автобизнес), а не 'рынок авторов'. Не упоминай нишу в тексте напрямую. Пиши только на русском языке, без английских слов."
         if mode in {"post", "strategy", "competitor_analysis", "ab_testing", "hashtags"}:
             full_prompt = context + "\n" + prompt_template.format(
                 topic=topic.replace('_', ' '),
@@ -179,22 +180,34 @@ async def handle_message(update: Update, context: ContextTypes) -> None:
         else:
             user_data[state.split("_")[1]] = message.lower() if state == "post_tone" else message
             if state == "post_template":
+                # Проверяем тему на "авторынок" и уточняем, если нужно
+                if "авторынок" in user_data["topic"]:
+                    user_data["topic"] = "автомобильный рынок" + user_data["topic"].replace("авторынок", "").strip()
+                    logger.info(f"Тема уточнена: {user_data['topic']}")
                 user_data["ideas"] = await generate_content(user_id, "ideas", user_data["topic"], user_data["style"])
     elif state in {"stories_topic", "reels_topic"}:
         user_data["topic"] = message.replace(" ", "_")
+        if "авторынок" in user_data["topic"]:
+            user_data["topic"] = "автомобильный_рынок" + user_data["topic"].replace("авторынок", "").strip()
         user_data["ideas"] = await generate_content(user_id, "stories" if state == "stories_topic" else "reels", user_data["topic"])
     elif state == "competitors_keyword":
         user_data["competitor_keyword"] = message
         user_data["analysis"] = await generate_content(user_id, "competitor_analysis", message)
     elif state == "ab_test_topic":
         user_data["topic"] = message.replace(" ", "_")
+        if "авторынок" in user_data["topic"]:
+            user_data["topic"] = "автомобильный_рынок" + user_data["topic"].replace("авторынок", "").strip()
         user_data["headlines"] = await generate_content(user_id, "ab_testing", user_data["topic"])
     elif state.startswith("strategy_"):
         user_data[state.split("_")[1]] = message
         if state == "strategy_result":
+            if "авторынок" in user_data["topic"]:
+                user_data["topic"] = "автомобильный_рынок" + user_data["topic"].replace("авторынок", "").strip()
             user_data["strategy"] = await generate_content(user_id, "strategy", user_data["topic"])
     elif state == "hashtags_topic":
         user_data["topic"] = message.replace(" ", "_")
+        if "авторынок" in user_data["topic"]:
+            user_data["topic"] = "автомобильный_рынок" + user_data["topic"].replace("авторынок", "").strip()
         user_data["hashtags"] = await generate_content(user_id, "hashtags", user_data["topic"])
     elif state == "main":
         next_state = {
