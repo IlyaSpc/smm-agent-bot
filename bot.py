@@ -8,6 +8,9 @@ import re
 import asyncio
 from aiohttp import web
 import json
+from io import BytesIO
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 # Логирование
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -87,6 +90,24 @@ async def call_together_api(prompt: str, max_tokens: int = 500) -> str:
         logger.error(f"Ошибка вызова Together API: {e}")
         return "Сервер не отвечает 😓"
 
+async def generate_pdf(text: str, filename: str) -> BytesIO:
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    c.setFont("Helvetica", 12)
+    lines = text.split('\n')
+    y = height - 40
+    for line in lines:
+        if y < 40:
+            c.showPage()
+            c.setFont("Helvetica", 12)
+            y = height - 40
+        c.drawString(40, y, line)
+        y -= 15
+    c.save()
+    buffer.seek(0)
+    return buffer
+
 async def generate_content(user_id: int, mode: str, topic: str, style: str = "дружелюбный") -> str:
     user_data = app.bot_data.setdefault(user_id, {})
     niche = user_data.get("niche", "не_указано")
@@ -95,61 +116,61 @@ async def generate_content(user_id: int, mode: str, topic: str, style: str = "д
         return prompt_template
 
     try:
-        # Уточняем контекст: ниша как направление, тема с фильтром на неоднозначность
-        context = f"Ты работаешь в нише '{niche}' — это область деятельности, которая задаёт направление твоего мышления (например, автоматизация, чат-боты, воронки продаж, технологии). Сфокусируйся на теме '{topic}'. Если в теме есть слово 'авторынок', интерпретируй его как 'автомобильный рынок' (продажа машин, автобизнес), а не 'рынок авторов'. Не упоминай нишу в тексте напрямую. Пиши только на русском языке, без английских слов."
-        if mode in {"post", "strategy", "competitor_analysis", "ab_testing", "hashtags"}:
-            full_prompt = context + "\n" + prompt_template.format(
-                topic=topic.replace('_', ' '),
-                style=style,
-                tone=user_data.get("tone", "универсальный"),
-                template=user_data.get("template", "стандарт"),
-                client=user_data.get("client", "не_указано"),
-                channels=user_data.get("channels", "не_указано"),
-                result=user_data.get("result", "не_указано"),
-                competitor_keyword=user_data.get("competitor_keyword", "не_указано")
-            )
-            return await call_together_api(full_prompt, 2000 if mode == "strategy" else 500)
+        context = f"Ты работаешь в нише '{niche}' — это область деятельности, которая задаёт направление твоего мышления. Сфокусируйся на теме '{topic}'. Используй нишу как контекст, а тему как основное содержание. Пиши только на русском языке, без английских слов."
+        full_prompt = context + "\n" + prompt_template.format(
+            topic=topic.replace('_', ' '),
+            style=style,
+            tone=user_data.get("tone", "универсальный"),
+            template=user_data.get("template", "стандарт"),
+            client=user_data.get("client", "не_указано"),
+            channels=user_data.get("channels", "не_указано"),
+            result=user_data.get("result", "не_указано"),
+            competitor_keyword=user_data.get("competitor_keyword", "не_указано")
+        )
+        raw_text = await call_together_api(full_prompt, 2000 if mode == "strategy" else 500)
+        if mode == "strategy":
+            pdf_buffer = await generate_pdf(raw_text, "strategy.pdf")
+            return pdf_buffer
         elif mode in {"ideas", "reels", "stories"}:
-            full_prompt = context + "\n" + prompt_template.format(topic=topic.replace('_', ' '), style=style)
-            raw_text = await call_together_api(full_prompt)
             ideas = [line.strip() for line in raw_text.split("\n") if line.strip() and not line.startswith("#")]
             ideas = [re.sub(r'^\d+\.\s*|\*\*.*\*\*\s*', '', idea) for idea in ideas if len(idea.split()) > 5][:3]
             if not ideas:
                 ideas = ["Искры гениальности кончились — попробуй ещё раз!"]
             return "\n".join(f"{i+1}. {idea}" for i, idea in enumerate(ideas))
+        return raw_text
     except KeyError as e:
         logger.error(f"Ошибка форматирования промта: {e}")
         return f"Ошибка: отсутствует параметр {e}"
     return "Неизвестная ошибка"
 
-# Машина состояний
+# Машина состояний с смайликами
 STATES: Dict[str, Dict[str, Any]] = {
-    "start": {"text": "Привет! Как тебя зовут?", "next": "name"},
-    "name": {"text": "В какой нише работаешь?", "next": "niche"},
-    "niche": {"text": "Что делаем?", "next": "main", "keyboard": BASE_KEYBOARD},
-    "main": {"text": "Выбери действие!", "keyboard": BASE_KEYBOARD},
-    "post_topic": {"text": "О чём написать пост?", "next": "post_style"},
-    "post_style": {"text": "Какой стиль текста?", "next": "post_tone", "keyboard": STYLE_KEYBOARD},
-    "post_tone": {"text": "Выбери тон для аудитории:", "next": "post_template", "keyboard": TONE_KEYBOARD},
-    "post_template": {"text": "Выбери шаблон:", "next": "post_ideas", "keyboard": TEMPLATE_KEYBOARD},
-    "post_ideas": {"text": lambda uid: f"Вот идеи:\n{app.bot_data[uid]['ideas']}\nВыбери номер (1, 2, 3)!", "next": "post_generate"},
-    "post_generate": {"text": lambda uid: f"Вот твой пост:\n{app.bot_data[uid]['post']}", "next": "main", "keyboard": BASE_KEYBOARD},
-    "stories_topic": {"text": "О чём снять сторис?", "next": "stories_generate"},
+    "start": {"text": "Привет! Как тебя зовут? 😊", "next": "name"},
+    "name": {"text": lambda uid: f"Отлично, {app.bot_data[uid].get('name', 'друг')}! В какой нише работаешь? 🚀", "next": "niche"},
+    "niche": {"text": lambda uid: f"Круто, ниша '{app.bot_data[uid].get('niche', 'не указана')}'! Что делаем? 💡", "next": "main", "keyboard": BASE_KEYBOARD},
+    "main": {"text": "Выбери действие! 📋", "keyboard": BASE_KEYBOARD},
+    "post_topic": {"text": "О чём написать пост? 📝", "next": "post_style"},
+    "post_style": {"text": "Какой стиль текста? ✍️", "next": "post_tone", "keyboard": STYLE_KEYBOARD},
+    "post_tone": {"text": "Выбери тон для аудитории: 🎯", "next": "post_template", "keyboard": TONE_KEYBOARD},
+    "post_template": {"text": "Выбери шаблон: 📄", "next": "post_ideas", "keyboard": TEMPLATE_KEYBOARD},
+    "post_ideas": {"text": lambda uid: f"Вот идеи:\n{app.bot_data[uid]['ideas']}\nВыбери номер (1, 2, 3)! 🤔", "next": "post_generate"},
+    "post_generate": {"text": lambda uid: f"Вот твой пост! 📝\n{app.bot_data[uid]['post']}", "next": "main", "keyboard": BASE_KEYBOARD},
+    "stories_topic": {"text": "О чём снять сторис? 📸", "next": "stories_generate"},
     "stories_generate": {"text": lambda uid: f"Вот идеи для сторис:\n{app.bot_data[uid]['ideas']}", "next": "main", "keyboard": BASE_KEYBOARD},
-    "reels_topic": {"text": "О чём снять Reels?", "next": "reels_generate"},
+    "reels_topic": {"text": "О чём снять Reels? 🎥", "next": "reels_generate"},
     "reels_generate": {"text": lambda uid: f"Вот идеи для Reels:\n{app.bot_data[uid]['ideas']}", "next": "main", "keyboard": BASE_KEYBOARD},
-    "competitors_keyword": {"text": "Укажи ключевое слово конкурентов!", "next": "competitors_generate"},
+    "competitors_keyword": {"text": "Укажи ключевое слово конкурентов! 🔍", "next": "competitors_generate"},
     "competitors_generate": {"text": lambda uid: f"Анализ конкурентов:\n{app.bot_data[uid]['analysis']}", "next": "main", "keyboard": BASE_KEYBOARD},
-    "ab_test_topic": {"text": "Для чего тестируем заголовки?", "next": "ab_test_generate"},
-    "ab_test_generate": {"text": lambda uid: f"Вот 3 заголовка:\n{app.bot_data[uid]['headlines']}\nВыбери номер (1, 2, 3)!", "next": "main", "keyboard": BASE_KEYBOARD},
-    "strategy_topic": {"text": "По какой теме стратегия?", "next": "strategy_client"},
-    "strategy_client": {"text": "Кто целевая аудитория?", "next": "strategy_channels"},
-    "strategy_channels": {"text": "Какие каналы продвижения?", "next": "strategy_result"},
-    "strategy_result": {"text": "Какой результат нужен?", "next": "strategy_generate"},
-    "strategy_generate": {"text": lambda uid: f"Вот стратегия:\n{app.bot_data[uid]['strategy']}", "next": "main", "keyboard": BASE_KEYBOARD},
-    "hashtags_topic": {"text": "По какой теме хэштеги?", "next": "hashtags_generate"},
+    "ab_test_topic": {"text": "Для чего тестируем заголовки? 🧪", "next": "ab_test_generate"},
+    "ab_test_generate": {"text": lambda uid: f"Вот 3 заголовка:\n{app.bot_data[uid]['headlines']}\nВыбери номер (1, 2, 3)! 🤔", "next": "main", "keyboard": BASE_KEYBOARD},
+    "strategy_topic": {"text": "По какой теме стратегия? 📊", "next": "strategy_client"},
+    "strategy_client": {"text": "Кто целевая аудитория? 🎯", "next": "strategy_channels"},
+    "strategy_channels": {"text": "Какие каналы продвижения? 📣", "next": "strategy_result"},
+    "strategy_result": {"text": "Какой результат нужен? 🏆", "next": "strategy_generate"},
+    "strategy_generate": {"text": "Стратегия готова! Скачай PDF ниже. 📄", "next": "main", "keyboard": BASE_KEYBOARD},
+    "hashtags_topic": {"text": "По какой теме хэштеги? #️⃣", "next": "hashtags_generate"},
     "hashtags_generate": {"text": lambda uid: f"Вот хэштеги:\n{app.bot_data[uid]['hashtags']}", "next": "main", "keyboard": BASE_KEYBOARD},
-    "analytics": {"text": "Функция 'Аналитика' пока в разработке. Скоро будет!", "next": "main", "keyboard": BASE_KEYBOARD},
+    "analytics": {"text": "Функция 'Аналитика' пока в разработке. Скоро будет! 🛠️", "next": "main", "keyboard": BASE_KEYBOARD},
 }
 
 async def handle_message(update: Update, context: ContextTypes) -> None:
@@ -168,7 +189,7 @@ async def handle_message(update: Update, context: ContextTypes) -> None:
         user_data["state"] = state_info["next"]
         return
 
-    state_info = STATES.get(state, {"text": "Выбери действие!", "keyboard": BASE_KEYBOARD})
+    state_info = STATES.get(state, {"text": "Выбери действие! 📋", "keyboard": BASE_KEYBOARD})
 
     if state in {"name", "niche"}:
         user_data[state] = message.capitalize() if state == "name" else message
@@ -180,34 +201,23 @@ async def handle_message(update: Update, context: ContextTypes) -> None:
         else:
             user_data[state.split("_")[1]] = message.lower() if state == "post_tone" else message
             if state == "post_template":
-                # Проверяем тему на "авторынок" и уточняем, если нужно
-                if "авторынок" in user_data["topic"]:
-                    user_data["topic"] = "автомобильный рынок" + user_data["topic"].replace("авторынок", "").strip()
-                    logger.info(f"Тема уточнена: {user_data['topic']}")
                 user_data["ideas"] = await generate_content(user_id, "ideas", user_data["topic"], user_data["style"])
     elif state in {"stories_topic", "reels_topic"}:
         user_data["topic"] = message.replace(" ", "_")
-        if "авторынок" in user_data["topic"]:
-            user_data["topic"] = "автомобильный_рынок" + user_data["topic"].replace("авторынок", "").strip()
         user_data["ideas"] = await generate_content(user_id, "stories" if state == "stories_topic" else "reels", user_data["topic"])
     elif state == "competitors_keyword":
         user_data["competitor_keyword"] = message
         user_data["analysis"] = await generate_content(user_id, "competitor_analysis", message)
     elif state == "ab_test_topic":
         user_data["topic"] = message.replace(" ", "_")
-        if "авторынок" in user_data["topic"]:
-            user_data["topic"] = "автомобильный_рынок" + user_data["topic"].replace("авторынок", "").strip()
         user_data["headlines"] = await generate_content(user_id, "ab_testing", user_data["topic"])
     elif state.startswith("strategy_"):
         user_data[state.split("_")[1]] = message
         if state == "strategy_result":
-            if "авторынок" in user_data["topic"]:
-                user_data["topic"] = "автомобильный_рынок" + user_data["topic"].replace("авторынок", "").strip()
             user_data["strategy"] = await generate_content(user_id, "strategy", user_data["topic"])
+            await update.message.reply_document(document=user_data["strategy"], filename="strategy.pdf")
     elif state == "hashtags_topic":
         user_data["topic"] = message.replace(" ", "_")
-        if "авторынок" in user_data["topic"]:
-            user_data["topic"] = "автомобильный_рынок" + user_data["topic"].replace("авторынок", "").strip()
         user_data["hashtags"] = await generate_content(user_id, "hashtags", user_data["topic"])
     elif state == "main":
         next_state = {
@@ -228,16 +238,12 @@ async def handle_message(update: Update, context: ContextTypes) -> None:
 
     next_state = state_info.get("next", "main")
     user_data["state"] = next_state
-    next_info = STATES.get(next_state, {"text": "Выбери действие!", "keyboard": BASE_KEYBOARD})
+    next_info = STATES.get(next_state, {"text": "Выбери действие! 📋", "keyboard": BASE_KEYBOARD})
     
     if callable(next_info["text"]):
         text = next_info["text"](user_id)
     else:
         text = next_info["text"]
-        if next_state == "niche":
-            text = f"Отлично, {user_data.get('name', 'друг')}! В какой нише работаешь?"
-        elif next_state == "main":
-            text = f"Круто, ниша '{user_data.get('niche', 'не указана')}'! Что делаем?"
 
     await update.message.reply_text(text, reply_markup=next_info.get("keyboard"))
 
