@@ -2,7 +2,7 @@ import os
 import json
 import requests
 from datetime import datetime, timedelta
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, ConversationHandler, filters
 import logging
 from reportlab.lib.pagesizes import A4
@@ -12,13 +12,13 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.units import mm
 from io import BytesIO
 import asyncio
-from aiohttp import web  # Исправленный импорт
+from aiohttp import web
 
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Состояния для ConversationHandler (для постов)
+# Состояния для ConversationHandler
 THEME, STYLE, TEMPLATE, IDEAS, EDIT = range(5)
 
 # Состояния для ConversationHandler (для стратегии)
@@ -160,15 +160,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     check_subscription(user_id)
 
     welcome_message = (
-        "Привет! Я SMM Agent Bot — твой помощник в создании контента. 🎉\n"
-        "У тебя 3 дня бесплатного доступа к Полной версии! Попробуй сгенерировать пост ('Пост'), "
-        "идеи для Reels ('Reels') или стратегию ('/strategiya').\n\n"
-        "Меня создал Илья Чечуев (@i_chechuev). Подписывайся на мой Telegram-канал @ChechuevSMM, "
-        "чтобы узнать больше о SMM и ботах!\n\n"
-        "Если пробный период закончится, оформи подписку: /podpiska\n\n"
-        "Что делаем?"
+        "Привет! Я SMM-помощник в создании контента. 🎉\n"
+        "У тебя 3 дня бесплатного доступа к Полной версии! Попробуй сгенерировать пост, идеи для Reels или стратегию и контент план."
     )
-    await update.message.reply_text(welcome_message)
+
+    keyboard = [
+        ["Пост", "Рилс"],
+        ["Стратегия", "Хештеги"],
+        ["А/Б тест"]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+    await update.message.reply_text(welcome_message, reply_markup=reply_markup)
 
 # Команда /podpiska
 async def podpiska(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -181,12 +184,13 @@ async def podpiska(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "3. Разовая покупка — 10 000 руб. (навсегда)\n\n"
             "Платежи временно недоступны. Напиши @i_chechuev для оплаты вручную."
         )
-        await update.message.reply_text(message)
+        await update.message.reply_text(message, reply_markup=ReplyKeyboardRemove())
     else:
         expiry_date = subscription_expiry[user_id].strftime("%Y-%m-%d") if subscription_expiry[user_id] else "навсегда"
         await update.message.reply_text(
             f"У тебя уже есть подписка: {subscriptions[user_id]} (до {expiry_date}).\n"
-            "Хочешь продлить или изменить подписку? Напиши /podpiska."
+            "Хочешь продлить или изменить подписку? Напиши /podpiska.",
+            reply_markup=ReplyKeyboardRemove()
         )
 
 # Команда /strategiya
@@ -194,18 +198,21 @@ async def strategiya(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not check_subscription(user_id):
         await update.message.reply_text(
-            "Твой пробный период истёк! Оформи подписку: /podpiska"
+            "Твой пробный период истёк! Оформи подписку: /podpiska",
+            reply_markup=ReplyKeyboardRemove()
         )
         return ConversationHandler.END
 
     if subscriptions[user_id] not in ["full", "lifetime"]:
         await update.message.reply_text(
-            "Функция 'Стратегия' доступна только в Полной версии. Оформи подписку: /podpiska"
+            "Функция 'Стратегия' доступна только в Полной версии. Оформи подписку: /podpiska",
+            reply_markup=ReplyKeyboardRemove()
         )
         return ConversationHandler.END
 
     await update.message.reply_text(
-        "Какая у тебя цель? Например: Увеличить вовлечённость, Привлечь подписчиков, Продать продукт."
+        "Какая у тебя цель? Например: Увеличить вовлечённость, Привлечь подписчиков, Продать продукт.",
+        reply_markup=ReplyKeyboardRemove()
     )
     return GOAL
 
@@ -230,7 +237,6 @@ async def period(update: Update, context: ContextTypes.DEFAULT_TYPE):
     audience = context.user_data['audience']
     period = context.user_data['period']
 
-    # Определяем тип стратегии на основе цели
     goal_lower = goal.lower()
     if "вовлечённость" in goal_lower:
         strategy_type = "engagement"
@@ -241,26 +247,26 @@ async def period(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         strategy_type = "engagement"
 
-    # Загружаем промпт из JSON
     strategy_prompt = PROMPTS.get("strategy", {}).get(strategy_type, "Составь SMM-стратегию. Аудитория: {audience}, период: {period}.")
     strategy_prompt = strategy_prompt.format(audience=audience, channels="Instagram, Telegram", result="увеличение вовлечённости")
 
-    # Генерируем стратегию через Together AI
     strategy_text = generate_with_together(strategy_prompt)
-
-    # Генерируем хэштеги
     hashtags = generate_hashtags("мода")
-
-    # Генерируем PDF
     pdf_buffer = generate_pdf(strategy_text)
 
-    # Отправляем PDF пользователю
     await update.message.reply_document(
         document=pdf_buffer,
         filename=f"SMM_Strategy_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
         caption=f"Вот твоя SMM-стратегия и контент-план! 📄\n\n{hashtags}"
     )
 
+    await update.message.reply_text(
+        "Что дальше?",
+        reply_markup=ReplyKeyboardMarkup(
+            [["Пост", "Рилс"], ["Стратегия", "Хештеги"], ["А/Б тест"]],
+            resize_keyboard=True
+        )
+    )
     return ConversationHandler.END
 
 # Обработчик текстовых сообщений
@@ -268,7 +274,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not check_subscription(user_id):
         await update.message.reply_text(
-            "Твой пробный период истёк! Оформи подписку: /podpiska"
+            "Твой пробный период истёк! Оформи подписку: /podpiska",
+            reply_markup=ReplyKeyboardRemove()
         )
         return
 
@@ -277,24 +284,85 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "Пост":
         if subscription_type in ["lite", "full"]:
-            await update.message.reply_text("О чём написать пост? (укажи тему)")
+            await update.message.reply_text("О чём написать пост? (укажи тему)", reply_markup=ReplyKeyboardRemove())
+            context.user_data['action'] = "generate_post"
             return THEME
         else:
-            await update.message.reply_text("Эта функция доступна только с подпиской. Оформи: /podpiska")
+            await update.message.reply_text("Эта функция доступна только с подпиской. Оформи: /podpiska", reply_markup=ReplyKeyboardRemove())
+    elif text == "Рилс":
+        if subscription_type in ["lite", "full"]:
+            await update.message.reply_text("О чём снять Reels? (укажи тему)", reply_markup=ReplyKeyboardRemove())
+            context.user_data['action'] = "generate_reels"
+            return THEME
+        else:
+            await update.message.reply_text("Эта функция доступна только с подпиской. Оформи: /podpiska", reply_markup=ReplyKeyboardRemove())
+    elif text == "Стратегия":
+        await strategiya(update, context)
+    elif text == "Хештеги":
+        if subscription_type in ["lite", "full"]:
+            await update.message.reply_text("Для какой темы сгенерировать хэштеги?", reply_markup=ReplyKeyboardRemove())
+            context.user_data['action'] = "generate_hashtags"
+            return THEME
+        else:
+            await update.message.reply_text("Эта функция доступна только с подпиской. Оформи: /podpiska", reply_markup=ReplyKeyboardRemove())
+    elif text == "А/Б тест":
+        await update.message.reply_text(
+            "Функция А/Б теста пока в разработке. Скоро добавлю! 😊",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        await update.message.reply_text(
+            "Что дальше?",
+            reply_markup=ReplyKeyboardMarkup(
+                [["Пост", "Рилс"], ["Стратегия", "Хештеги"], ["А/Б тест"]],
+                resize_keyboard=True
+            )
+        )
     else:
-        await update.message.reply_text("Я понимаю команды 'Пост' и '/strategiya'. Скоро добавлю больше функций! 😊")
+        await update.message.reply_text(
+            "Выбери действие из кнопок ниже:",
+            reply_markup=ReplyKeyboardMarkup(
+                [["Пост", "Рилс"], ["Стратегия", "Хештеги"], ["А/Б тест"]],
+                resize_keyboard=True
+            )
+        )
 
-# Обработчик для ConversationHandler (посты)
+# Обработчик для ConversationHandler (посты, Reels, хэштеги)
 async def theme(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     context.user_data['theme'] = update.message.text
 
-    if subscriptions[user_id] == "full":
-        await update.message.reply_text("Какой стиль текста? Формальный, Дружелюбный, Саркастичный")
-        return STYLE
-    else:
-        await update.message.reply_text("Выбери шаблон: Стандарт, Объявление, Опрос, Кейс")
-        return TEMPLATE
+    action = context.user_data.get('action', 'generate_post')
+
+    if action == "generate_post":
+        if subscriptions[user_id] == "full":
+            await update.message.reply_text("Какой стиль текста? Формальный, Дружелюбный, Саркастичный")
+            return STYLE
+        else:
+            await update.message.reply_text("Выбери шаблон: Стандарт, Объявление, Опрос, Кейс")
+            return TEMPLATE
+    elif action == "generate_reels":
+        theme = context.user_data['theme']
+        style = "Дружелюбный"
+        ideas = [
+            f"Идея 1: Короткое видео с советом по теме {theme}",
+            f"Идея 2: Трендовая съёмка на тему {theme}",
+            f"Идея 3: Вопрос к аудитории про {theme}"
+        ]
+        context.user_data['ideas'] = ideas
+        await update.message.reply_text("Вот несколько идей для Reels:\n" + "\n".join(ideas) + "\n\nВыбери идею (1, 2, 3)")
+        return IDEAS
+    elif action == "generate_hashtags":
+        theme = context.user_data['theme']
+        hashtags = generate_hashtags(theme)
+        await update.message.reply_text(f"Вот хэштеги для темы '{theme}':\n{hashtags}")
+        await update.message.reply_text(
+            "Что дальше?",
+            reply_markup=ReplyKeyboardMarkup(
+                [["Пост", "Рилс"], ["Стратегия", "Хештеги"], ["А/Б тест"]],
+                resize_keyboard=True
+            )
+        )
+        return ConversationHandler.END
 
 async def style(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['style'] = update.message.text
@@ -307,7 +375,6 @@ async def template(update: Update, context: ContextTypes.DEFAULT_TYPE):
     style = context.user_data.get('style', 'Дружелюбный').lower()
     template = context.user_data['template']
 
-    # Генерация идей (пока заглушка, можно добавить позже)
     ideas = [
         f"Идея 1: Показать пользу {theme} в стиле {style}",
         f"Идея 2: Рассказать историю про {theme} в стиле {style}",
@@ -321,7 +388,6 @@ async def ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     idea_number = update.message.text
     theme = context.user_data['theme']
     style = context.user_data.get('style', 'Дружелюбный').lower()
-    template = context.user_data['template']
     ideas = context.user_data['ideas']
 
     if idea_number in ["1", "2", "3"]:
@@ -329,62 +395,75 @@ async def ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         idea = "Показать пользу темы"
 
-    # Загружаем промпт из JSON
-    post_prompt = PROMPTS.get("post", {}).get(style, "Создай пост на тему {theme} в формате {template}.")
-    post_prompt = post_prompt.format(
-        theme=theme,
-        template=template,
-        idea=idea,
-        goal="привлечение",
-        main_idea="показать пользу темы",
-        facts="основаны на реальных примерах",
-        pains="нехватка времени и информации"
-    )
-
-    # Генерируем пост через Together AI
-    post = generate_with_together(post_prompt)
-
-    # Генерируем хэштеги
-    hashtags = generate_hashtags(theme)
-
-    # Сохраняем результат для редактирования
-    context.user_data['last_result'] = post
-
-    await update.message.reply_text(f"Готовый пост:\n{post}\n\n{hashtags}\n\nЕсли хочешь отредактировать, напиши 'Отредактировать'")
-    return EDIT
+    action = context.user_data.get('action', 'generate_post')
+    if action == "generate_post":
+        template = context.user_data['template']
+        post_prompt = PROMPTS.get("post", {}).get(style, "Создай пост на тему {theme} в формате {template}.")
+        post_prompt = post_prompt.format(
+            theme=theme,
+            template=template,
+            idea=idea,
+            goal="привлечение",
+            main_idea="показать пользу темы",
+            facts="основаны на реальных примерах",
+            pains="нехватка времени и информации"
+        )
+        result = generate_with_together(post_prompt)
+        hashtags = generate_hashtags(theme)
+        context.user_data['last_result'] = result
+        await update.message.reply_text(f"Готовый пост:\n{result}\n\n{hashtags}\n\nЕсли хочешь отредактировать, напиши 'Отредактировать'")
+        return EDIT
+    elif action == "generate_reels":
+        reels_prompt = f"Создай идею для Reels на тему {theme}. Опиши короткое видео, которое привлечёт внимание аудитории. Идея: {idea}."
+        result = generate_with_together(reels_prompt)
+        hashtags = generate_hashtags(theme)
+        context.user_data['last_result'] = result
+        await update.message.reply_text(f"Готовая идея для Reels:\n{result}\n\n{hashtags}\n\nЕсли хочешь отредактировать, напиши 'Отредактировать'")
+        return EDIT
 
 async def edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if text.lower() == "отредактировать":
-        await update.message.reply_text("Что исправить в посте? (например, 'убери слово кофе')")
+        await update.message.reply_text("Что исправить? (например, 'убери слово кофе')")
         return EDIT
     elif text.lower() == "отмена":
-        await update.message.reply_text("Отменено. Напиши 'Пост' или '/strategiya', чтобы начать заново.")
+        await update.message.reply_text(
+            "Отменено. Что дальше?",
+            reply_markup=ReplyKeyboardMarkup(
+                [["Пост", "Рилс"], ["Стратегия", "Хештеги"], ["А/Б тест"]],
+                resize_keyboard=True
+            )
+        )
         return ConversationHandler.END
     else:
         edit_request = text
         last_result = context.user_data['last_result']
         style = context.user_data.get('style', 'Дружелюбный').lower()
-        template = context.user_data['template']
+        action = context.user_data.get('action', 'generate_post')
 
-        # Формируем промпт для редактирования
         edit_prompt = (
             f"Перепиши текст на русском языке: '{last_result}' с учётом запроса пользователя: '{edit_request}'. "
-            f"Сохрани стиль: {style}, шаблон: {template}. Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, без иностранных слов. "
+            f"Сохрани стиль: {style}. Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, без иностранных слов. "
             f"Верни только исправленный текст."
         )
 
-        # Редактируем через Together AI
-        edited_post = generate_with_together(edit_prompt)
+        edited_result = generate_with_together(edit_prompt)
+        context.user_data['last_result'] = edited_result
 
-        # Обновляем результат
-        context.user_data['last_result'] = edited_post
-
-        await update.message.reply_text(f"Исправленный пост:\n{edited_post}\n\nЕсли нужно ещё что-то изменить, напиши 'Отредактировать', или 'Отмена' для завершения.")
+        await update.message.reply_text(
+            f"Исправленный {'пост' if action == 'generate_post' else 'Reels'}:\n{edited_result}\n\n"
+            f"Если нужно ещё что-то изменить, напиши 'Отредактировать', или 'Отмена' для завершения."
+        )
         return EDIT
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Отменено. Напиши 'Пост' или '/strategiya', чтобы начать заново.")
+    await update.message.reply_text(
+        "Отменено. Что дальше?",
+        reply_markup=ReplyKeyboardMarkup(
+            [["Пост", "Рилс"], ["Стратегия", "Хештеги"], ["А/Б тест"]],
+            resize_keyboard=True
+        )
+    )
     return ConversationHandler.END
 
 # Регистрация обработчиков
@@ -419,7 +498,7 @@ application.add_handler(conv_handler)
 async def webhook(request):
     update = Update.de_json(await request.json(), application.bot)
     await application.process_update(update)
-    return web.Response(status=200)  # Исправлено: aiohttp.web.Response -> web.Response
+    return web.Response(status=200)
 
 async def on_startup(_):
     webhook_url = os.getenv("WEBHOOK_URL")
@@ -431,25 +510,20 @@ async def on_startup(_):
 
 # Основная функция
 async def main():
-    # Инициализация приложения
     await application.initialize()
     
-    # Создание веб-сервера
-    web_app = web.Application()  # Исправлено: aiohttp.web.Application -> web.Application
-    web_app.add_routes([web.post('/', webhook)])  # Исправлено: aiohttp.web.post -> web.post
+    web_app = web.Application()
+    web_app.add_routes([web.post('/', webhook)])
     web_app.on_startup.append(on_startup)
     
-    # Запуск веб-сервера на порту 1000
-    runner = web.AppRunner(web_app)  # Исправлено: aiohttp.web.AppRunner -> web.AppRunner
+    runner = web.AppRunner(web_app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 1000)  # Исправлено: aiohttp.web.TCPSite -> web.TCPSite
+    site = web.TCPSite(runner, '0.0.0.0', 1000)
     await site.start()
     
-    # Запуск бота
     await application.start()
     logger.info("Бот запущен с вебхуком на порту 1000")
     
-    # Бесконечный цикл для поддержания работы
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
