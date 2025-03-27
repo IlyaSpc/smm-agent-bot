@@ -3,7 +3,7 @@ import json
 import requests
 from datetime import datetime, timedelta
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, Filters, ContextTypes, ConversationHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, ConversationHandler, filters
 import logging
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -392,22 +392,22 @@ def main():
     strategy_handler = ConversationHandler(
         entry_points=[CommandHandler("стратегия", strategiya)],
         states={
-            GOAL: [MessageHandler(Filters.text & ~Filters.command, goal)],
-            AUDIENCE: [MessageHandler(Filters.text & ~Filters.command, audience)],
-            PERIOD: [MessageHandler(Filters.text & ~Filters.command, period)],
+            GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, goal)],
+            AUDIENCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, audience)],
+            PERIOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, period)],
         },
         fallbacks=[CommandHandler("cancel", cancel)]
     )
     application.add_handler(strategy_handler)
 
     conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(Filters.text & ~Filters.command, handle_message)],
+        entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)],
         states={
-            THEME: [MessageHandler(Filters.text & ~Filters.command, theme)],
-            STYLE: [MessageHandler(Filters.text & ~Filters.command, style)],
-            TEMPLATE: [MessageHandler(Filters.text & ~Filters.command, template)],
-            IDEAS: [MessageHandler(Filters.text & ~Filters.command, ideas)],
-            EDIT: [MessageHandler(Filters.text & ~Filters.command, edit)],
+            THEME: [MessageHandler(filters.TEXT & ~filters.COMMAND, theme)],
+            STYLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, style)],
+            TEMPLATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, template)],
+            IDEAS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ideas)],
+            EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit)],
         },
         fallbacks=[CommandHandler("cancel", cancel)]
     )
