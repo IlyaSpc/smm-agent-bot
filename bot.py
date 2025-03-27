@@ -152,15 +152,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_message = (
         "Привет! Я SMM Agent Bot — твой помощник в создании контента. 🎉\n"
         "У тебя 3 дня бесплатного доступа к Полной версии! Попробуй сгенерировать пост ('Пост'), "
-        "идеи для Reels ('Reels') или стратегию ('/стратегия').\n\n"
+        "идеи для Reels ('Reels') или стратегию ('/strategiya').\n\n"
         "Меня создал Илья Чечуев (@i_chechuev). Подписывайся на мой Telegram-канал @ChechuevSMM, "
         "чтобы узнать больше о SMM и ботах!\n\n"
-        "Если пробный период закончится, оформи подписку: /подписка\n\n"
+        "Если пробный период закончится, оформи подписку: /podpiska\n\n"
         "Что делаем?"
     )
     await update.message.reply_text(welcome_message)
 
-# Команда /подписка
+# Команда /podpiska
 async def podpiska(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not check_subscription(user_id):
@@ -176,21 +176,21 @@ async def podpiska(update: Update, context: ContextTypes.DEFAULT_TYPE):
         expiry_date = subscription_expiry[user_id].strftime("%Y-%m-%d") if subscription_expiry[user_id] else "навсегда"
         await update.message.reply_text(
             f"У тебя уже есть подписка: {subscriptions[user_id]} (до {expiry_date}).\n"
-            "Хочешь продлить или изменить подписку? Напиши /подписка."
+            "Хочешь продлить или изменить подписку? Напиши /podpiska."
         )
 
-# Команда /стратегия
+# Команда /strategiya
 async def strategiya(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not check_subscription(user_id):
         await update.message.reply_text(
-            "Твой пробный период истёк! Оформи подписку: /подписка"
+            "Твой пробный период истёк! Оформи подписку: /podpiska"
         )
         return ConversationHandler.END
 
     if subscriptions[user_id] not in ["full", "lifetime"]:
         await update.message.reply_text(
-            "Функция 'Стратегия' доступна только в Полной версии. Оформи подписку: /подписка"
+            "Функция 'Стратегия' доступна только в Полной версии. Оформи подписку: /podpiska"
         )
         return ConversationHandler.END
 
@@ -258,7 +258,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not check_subscription(user_id):
         await update.message.reply_text(
-            "Твой пробный период истёк! Оформи подписку: /подписка"
+            "Твой пробный период истёк! Оформи подписку: /podpiska"
         )
         return
 
@@ -270,9 +270,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("О чём написать пост? (укажи тему)")
             return THEME
         else:
-            await update.message.reply_text("Эта функция доступна только с подпиской. Оформи: /подписка")
+            await update.message.reply_text("Эта функция доступна только с подпиской. Оформи: /podpiska")
     else:
-        await update.message.reply_text("Я понимаю команды 'Пост' и '/стратегия'. Скоро добавлю больше функций! 😊")
+        await update.message.reply_text("Я понимаю команды 'Пост' и '/strategiya'. Скоро добавлю больше функций! 😊")
 
 # Обработчик для ConversationHandler (посты)
 async def theme(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -349,7 +349,7 @@ async def edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Что исправить в посте? (например, 'убери слово кофе')")
         return EDIT
     elif text.lower() == "отмена":
-        await update.message.reply_text("Отменено. Напиши 'Пост' или '/стратегия', чтобы начать заново.")
+        await update.message.reply_text("Отменено. Напиши 'Пост' или '/strategiya', чтобы начать заново.")
         return ConversationHandler.END
     else:
         edit_request = text
@@ -374,7 +374,7 @@ async def edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return EDIT
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Отменено. Напиши 'Пост' или '/стратегия', чтобы начать заново.")
+    await update.message.reply_text("Отменено. Напиши 'Пост' или '/strategiya', чтобы начать заново.")
     return ConversationHandler.END
 
 # Основная функция
@@ -387,10 +387,10 @@ def main():
     application = Application.builder().token(token).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("подписка", podpiska))
+    application.add_handler(CommandHandler("podpiska", podpiska))
 
     strategy_handler = ConversationHandler(
-        entry_points=[CommandHandler("стратегия", strategiya)],
+        entry_points=[CommandHandler("strategiya", strategiya)],
         states={
             GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, goal)],
             AUDIENCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, audience)],
