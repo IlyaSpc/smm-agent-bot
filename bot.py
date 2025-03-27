@@ -1,9 +1,9 @@
 import os
 import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, filters
-from .handlers import start, podpiska, strategiya, goal, audience, period, handle_message, theme, style, template, ideas, edit, cancel
-from .webhook import main
-from .utils import load_state
+from handlers import start, podpiska, strategiya, goal, audience, period, handle_message, theme, style, template, ideas, edit, cancel
+from webhook import main
+from utils import load_state
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
