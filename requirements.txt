@@ -1,6 +1,6 @@
 python-telegram-bot>=20.8
 requests
-aiohttp
+aiohttp==3.9.5
 speechrecognition
 pydub
 pytrends
