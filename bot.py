@@ -1,304 +1,420 @@
 import os
-import logging
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import requests
-import re
-import asyncio
-from aiohttp import web
 import json
+import requests
+from datetime import datetime, timedelta
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, Filters, ContextTypes, ConversationHandler
+import logging
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.units import mm
+from io import BytesIO
 
-# Логирование
+# Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Конфигурация
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7932585679:AAHD9S-LbNMLdHPYtdFZRwg_2JBu_tdd0ng")
-TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "e176b9501183206d063aab78a4abfe82727a24004a07f617c9e06472e2630118")
+# Состояния для ConversationHandler (для постов)
+THEME, STYLE, TEMPLATE, IDEAS, EDIT = range(5)
+
+# Состояния для ConversationHandler (для стратегии)
+GOAL, AUDIENCE, PERIOD = range(3)
+
+# Хранилище подписок и дат окончания
+subscriptions = {}
+subscription_expiry = {}
+trial_start = {}
+
+# ID разработчика
+DEVELOPER_ID = 477468896
+
+# Загрузка промптов из JSON
+try:
+    with open('prompts.json', 'r', encoding='utf-8') as f:
+        PROMPTS = json.load(f)
+except FileNotFoundError:
+    logger.error("Файл prompts.json не найден")
+    PROMPTS = {}
+
+# Настройка Together AI
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
-PROMPTS_URL = "https://drive.google.com/uc?export=download&id=1byy2KMAGV3Thg0MwH94PMQEjoA3BwqWK"
-PORT = int(os.environ.get("PORT", 10000))
 
-app = Application.builder().token(TELEGRAM_BOT_TOKEN).read_timeout(30).write_timeout(30).build()
-
-# Глобальные данные
-user_data = {}
-user_names = {}
-hashtag_cache = {}
-
-# Health check endpoint
-async def health_check(request):
-    logger.info("Получен запрос на /health")
-    return web.Response(text="OK", status=200)
-
-# Функция загрузки промтов с Google Drive
-async def get_prompt_from_drive(prompt_name):
+# Функция для генерации текста через Together AI (LLaMA-3-8B)
+def generate_with_together(prompt):
+    headers = {
+        "Authorization": f"Bearer {TOGETHER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "meta-llama/Llama-3-8b-chat-hf",
+        "messages": [
+            {"role": "system", "content": "Ты копирайтер с 10-летним опытом, работающий на русском языке."},
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 1000,
+        "temperature": 0.7,
+        "top_p": 0.9
+    }
     try:
-        logger.info(f"Загрузка промта '{prompt_name}' с Google Drive")
-        response = requests.get(PROMPTS_URL, timeout=10)
+        response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
-            prompts = json.loads(response.text)
-            prompt = prompts.get(prompt_name, "Промт не найден")
-            logger.info(f"Промт '{prompt_name}' загружен: {prompt[:50]}...")
-            return prompt
-        logger.error(f"Ошибка загрузки промтов: {response.status_code} - {response.text}")
-        return "Ошибка загрузки промтов"
+            result = response.json()
+            return result["choices"][0]["message"]["content"].strip()
+        else:
+            logger.error(f"Ошибка Together AI: {response.status_code} - {response.text}")
+            return "Не удалось сгенерировать текст. Попробуй позже! 😔"
     except Exception as e:
-        logger.error(f"Ошибка при запросе к Google Drive: {e}")
-        return "Ошибка загрузки промтов"
+        logger.error(f"Ошибка при вызове Together AI: {e}")
+        return "Не удалось сгенерировать текст. Попробуй позже! 😔"
 
-# Генерация текста
-async def generate_text(user_id, mode):
-    logger.info(f"Генерация текста для user_id={user_id}, mode={mode}")
-    topic = user_data[user_id].get("topic", "не_указано")
-    style = user_data[user_id].get("style", "дружелюбный")
-    tone = user_data[user_id].get("tone", "универсальный")
-    template = user_data[user_id].get("template", "стандарт")
-    niche = user_data[user_id].get("niche", "не_указано")
-    client = user_data[user_id].get("client", "не_указано")
-    channels = user_data[user_id].get("channels", "не_указано")
-    result = user_data[user_id].get("result", "не_указано")
-    competitor_keyword = user_data[user_id].get("competitor_keyword", "не_указано")
+# Функция для генерации хэштегов
+def generate_hashtags(topic):
+    words = topic.split()
+    base_hashtags = [f"#{word}" for word in words if len(word) > 2]
+    thematic_hashtags = {
+        "мода": ["#мода", "#стиль", "#тренды", "#образ", "#вдохновение"],
+        "кофе": ["#кофе", "#утро", "#энергия", "#вкус", "#напиток"],
+        "фитнес": ["#фитнес", "#спорт", "#здоровье", "#мотивация", "#тренировки"]
+    }
+    relevant_tags = []
+    topic_lower = topic.lower()
+    for key in thematic_hashtags:
+        if key in topic_lower:
+            relevant_tags.extend(thematic_hashtags[key])
+            break
+    if not relevant_tags:
+        relevant_tags = ["#соцсети", "#жизнь", "#идеи", "#полезно", "#вдохновение"]
+    combined = list(dict.fromkeys(base_hashtags + relevant_tags))[:10]
+    return " ".join(combined)
 
-    base_prompt = await get_prompt_from_drive(mode)
-    if "не найден" in base_prompt or "ошибка" in base_prompt.lower():
-        logger.error(f"Промт для '{mode}' не загружен")
-        return f"Ошибка: промт для '{mode}' не загружен!"
+# Функция для проверки подписки
+def check_subscription(user_id):
+    if user_id == DEVELOPER_ID:
+        subscriptions[user_id] = "lifetime"
+        subscription_expiry[user_id] = None
+        return True
+    if user_id not in subscriptions or subscriptions[user_id] == "none":
+        if user_id not in trial_start:
+            trial_start[user_id] = datetime.now()
+            subscriptions[user_id] = "full"
+            subscription_expiry[user_id] = trial_start[user_id] + timedelta(days=3)
+            return True
+        else:
+            if datetime.now() > subscription_expiry[user_id]:
+                subscriptions[user_id] = "none"
+                return False
+            return True
+    if subscriptions[user_id] in ["lite", "full"]:
+        if datetime.now() > subscription_expiry[user_id]:
+            subscriptions[user_id] = "none"
+            return False
+    return True
 
-    try:
-        full_prompt = base_prompt.format(
-            topic=topic.replace('_', ' '),
-            style=style,
-            tone=tone,
-            template=template,
-            niche=niche,
-            client=client,
-            channels=channels,
-            result=result,
-            competitor_keyword=competitor_keyword
+# Функция для генерации PDF
+def generate_pdf(strategy_text):
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    
+    pdfmetrics.registerFont(TTFont('DejaVuSans', 'DejaVuSans.ttf'))
+    c.setFont('DejaVuSans', 12)
+
+    width, height = A4
+    margin = 20 * mm
+    y_position = height - margin
+
+    c.setFont('DejaVuSans', 16)
+    c.drawString(margin, y_position, "SMM-стратегия и контент-план")
+    y_position -= 20 * mm
+
+    c.setFont('DejaVuSans', 12)
+    lines = strategy_text.split('\n')
+    for line in lines:
+        if y_position < margin:
+            c.showPage()
+            c.setFont('DejaVuSans', 12)
+            y_position = height - margin
+        c.drawString(margin, y_position, line)
+        y_position -= 5 * mm
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer
+
+# Команда /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    check_subscription(user_id)
+
+    welcome_message = (
+        "Привет! Я SMM Agent Bot — твой помощник в создании контента. 🎉\n"
+        "У тебя 3 дня бесплатного доступа к Полной версии! Попробуй сгенерировать пост ('Пост'), "
+        "идеи для Reels ('Reels') или стратегию ('/стратегия').\n\n"
+        "Меня создал Илья Чечуев (@i_chechuev). Подписывайся на мой Telegram-канал @ChechuevSMM, "
+        "чтобы узнать больше о SMM и ботах!\n\n"
+        "Если пробный период закончится, оформи подписку: /подписка\n\n"
+        "Что делаем?"
+    )
+    await update.message.reply_text(welcome_message)
+
+# Команда /подписка
+async def podpiska(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not check_subscription(user_id):
+        message = (
+            "Выбери вариант:\n"
+            "1. Лайт — 300 руб./мес (или 1620 руб. за 6 мес, 2880 руб. за год)\n"
+            "2. Полная — 600 руб./мес (или 3240 руб. за 6 мес, 5760 руб. за год)\n"
+            "3. Разовая покупка — 10 000 руб. (навсегда)\n\n"
+            "Платежи временно недоступны. Напиши @i_chechuev для оплаты вручную."
         )
-        logger.info(f"Сформирован промт: {full_prompt[:50]}...")
-    except KeyError as e:
-        logger.error(f"Ошибка в промте: отсутствует параметр {e}")
-        return f"Ошибка в промте: отсутствует параметр {e}"
+        await update.message.reply_text(message)
+    else:
+        expiry_date = subscription_expiry[user_id].strftime("%Y-%m-%d") if subscription_expiry[user_id] else "навсегда"
+        await update.message.reply_text(
+            f"У тебя уже есть подписка: {subscriptions[user_id]} (до {expiry_date}).\n"
+            "Хочешь продлить или изменить подписку? Напиши /подписка."
+        )
 
-    headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": "meta-llama/Llama-3-8b-chat-hf",
-        "messages": [{"role": "user", "content": full_prompt}],
-        "max_tokens": 2000,
-        "temperature": 0.5
-    }
-    try:
-        response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
-        if response.status_code == 200:
-            result = response.json()["choices"][0]["message"]["content"].strip()
-            logger.info(f"Текст сгенерирован: {result[:50]}...")
-            return result
-        logger.error(f"Ошибка API Together: {response.status_code} - {response.text}")
-        return "Ошибка API"
-    except Exception as e:
-        logger.error(f"Ошибка генерации текста: {e}")
-        return "Сервер не отвечает 😓"
+# Команда /стратегия
+async def strategiya(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not check_subscription(user_id):
+        await update.message.reply_text(
+            "Твой пробный период истёк! Оформи подписку: /подписка"
+        )
+        return ConversationHandler.END
 
-# Генерация идей
-async def generate_ideas(topic, style="саркастичный", user_id=None):
-    logger.info(f"Генерация идей для topic={topic}, user_id={user_id}")
-    niche = user_data.get(user_id, {}).get("niche", "не_указано")
-    mode = user_data[user_id].get("mode", "post") if user_id else "post"
-    prompt_key = "reels" if mode == "reels" else "ideas"
-    base_prompt = await get_prompt_from_drive(prompt_key)
-    if "не найден" in base_prompt or "ошибка" in base_prompt.lower():
-        logger.error(f"Промт для '{prompt_key}' не загружен")
-        return ["1. Ошибка: промт для идей не загружен!"]
+    if subscriptions[user_id] not in ["full", "lifetime"]:
+        await update.message.reply_text(
+            "Функция 'Стратегия' доступна только в Полной версии. Оформи подписку: /подписка"
+        )
+        return ConversationHandler.END
 
-    try:
-        full_prompt = base_prompt.format(topic=topic, style=style, niche=niche)
-        logger.info(f"Сформирован промт для идей: {full_prompt[:50]}...")
-    except KeyError as e:
-        logger.error(f"Ошибка в промте: отсутствует параметр {e}")
-        return [f"1. Ошибка в промте: отсутствует параметр {e}"]
+    await update.message.reply_text(
+        "Какая у тебя цель? Например: Увеличить вовлечённость, Привлечь подписчиков, Продать продукт."
+    )
+    return GOAL
 
-    headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": "meta-llama/Llama-3-8b-chat-hf",
-        "messages": [{"role": "user", "content": full_prompt}],
-        "max_tokens": 500,
-        "temperature": 0.5  # Более предсказуемый результат
-    }
-    try:
-        response = requests.post(TOGETHER_API_URL, headers=headers, json=payload, timeout=30)
-        if response.status_code == 200:
-            raw_text = response.json()["choices"][0]["message"]["content"].strip()
-            ideas = [line.strip() for line in raw_text.split("\n") if line.strip()]
-            ideas = [re.sub(r'^\d+\.\s*', '', idea) for idea in ideas if len(idea.split()) >= 3][:3]
-            if len(ideas) < 3:
-                ideas.extend([f"Искры гениальности кончились — попробуй ещё раз!" for _ in range(len(ideas), 3)])
-            result = [f"{i+1}. {idea}" for i, idea in enumerate(ideas)]
-            logger.info(f"Идеи сгенерированы: {result}")
-            return result
-        logger.error(f"Ошибка API Together: {response.status_code} - {response.text}")
-        return ["1. Ошибка генерации идей 😓"]
-    except Exception as e:
-        logger.error(f"Ошибка генерации идей: {e}")
-        return ["1. Сервер не отвечает 😓"]
+# Обработчик для ConversationHandler (стратегия)
+async def goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['goal'] = update.message.text
+    await update.message.reply_text(
+        "Кто твоя целевая аудитория? Например: Молодёжь 18-25 лет, интересуются модой, активны в Instagram."
+    )
+    return AUDIENCE
 
-# Обработчик сообщений
-async def handle_message(update: Update, context: ContextTypes, is_voice=False):
-    user_id = update.message.from_user.id
-    message = update.message.text.lower().strip() if not is_voice else "голосовое"
-    logger.info(f"Получено сообщение от {user_id}: {message}")
+async def audience(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['audience'] = update.message.text
+    await update.message.reply_text(
+        "На какой период нужен план? Например: 1 неделя, 1 месяц."
+    )
+    return PERIOD
 
-    if user_id not in user_data:
-        user_data[user_id] = {"preferences": {"topics": [], "styles": []}}
-        logger.info(f"Создан новый пользователь: {user_id}")
+async def period(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['period'] = update.message.text
+    goal = context.user_data['goal']
+    audience = context.user_data['audience']
+    period = context.user_data['period']
 
-    base_keyboard = [["Пост", "Сторис", "Reels"], ["Аналитика", "Конкуренты", "А/Б тест"], ["Стратегия/Контент-план", "Хэштеги"]]
-    reply_markup = ReplyKeyboardMarkup(base_keyboard, resize_keyboard=True)
+    # Определяем тип стратегии на основе цели
+    goal_lower = goal.lower()
+    if "вовлечённость" in goal_lower:
+        strategy_type = "engagement"
+    elif "подписчиков" in goal_lower:
+        strategy_type = "followers"
+    elif "продать" in goal_lower or "продаж" in goal_lower:
+        strategy_type = "sales"
+    else:
+        strategy_type = "engagement"
 
-    if message == "/start":
-        user_data[user_id]["mode"] = "name"
-        user_data[user_id]["stage"] = "ask_name"
-        await update.message.reply_text("Привет! Как тебя зовут?")
+    # Загружаем промпт из JSON
+    strategy_prompt = PROMPTS.get("strategy", {}).get(strategy_type, "Составь SMM-стратегию. Аудитория: {audience}, период: {period}.")
+    strategy_prompt = strategy_prompt.format(audience=audience, channels="Instagram, Telegram", result="увеличение вовлечённости")
+
+    # Генерируем стратегию через Together AI
+    strategy_text = generate_with_together(strategy_prompt)
+
+    # Генерируем хэштеги
+    hashtags = generate_hashtags("мода")
+
+    # Генерируем PDF
+    pdf_buffer = generate_pdf(strategy_text)
+
+    # Отправляем PDF пользователю
+    await update.message.reply_document(
+        document=pdf_buffer,
+        filename=f"SMM_Strategy_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+        caption=f"Вот твоя SMM-стратегия и контент-план! 📄\n\n{hashtags}"
+    )
+
+    return ConversationHandler.END
+
+# Обработчик текстовых сообщений
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not check_subscription(user_id):
+        await update.message.reply_text(
+            "Твой пробный период истёк! Оформи подписку: /подписка"
+        )
         return
 
-    mode = user_data[user_id].get("mode")
-    stage = user_data[user_id].get("stage")
-    logger.info(f"Текущая стадия: mode={mode}, stage={stage}")
+    text = update.message.text
+    subscription_type = subscriptions.get(user_id, "lite")
 
-    if mode == "name" and stage == "ask_name":
-        user_names[user_id] = message.capitalize()
-        user_data[user_id]["mode"] = "niche"
-        user_data[user_id]["stage"] = "ask_niche"
-        await update.message.reply_text(f"Отлично, {user_names[user_id]}! В какой нише работаешь?")
-    elif mode == "niche" and stage == "ask_niche":
-        user_data[user_id]["niche"] = message
-        user_data[user_id]["mode"] = "main"
-        user_data[user_id]["stage"] = None
-        await update.message.reply_text(f"Круто, ниша '{message}'! Что делаем?", reply_markup=reply_markup)
-    elif message == "пост":
-        user_data[user_id]["mode"] = "post"
-        user_data[user_id]["stage"] = "topic"
-        await update.message.reply_text(f"О чём написать пост?")
-    elif mode == "post" and stage == "topic":
-        user_data[user_id]["topic"] = message.replace(" ", "_")
-        user_data[user_id]["stage"] = "style"
-        await update.message.reply_text(f"Какой стиль текста?", reply_markup=ReplyKeyboardMarkup([["Формальный", "Дружелюбный", "Саркастичный"]], resize_keyboard=True))
-    elif mode == "post" and stage == "style":
-        user_data[user_id]["style"] = message
-        user_data[user_id]["stage"] = "tone"
-        await update.message.reply_text(f"Выбери тон для аудитории:", reply_markup=ReplyKeyboardMarkup([["Миллениалы", "Бизнес-аудитория", "Gen Z"]], resize_keyboard=True))
-    elif mode == "post" and stage == "tone":
-        user_data[user_id]["tone"] = message.lower()
-        user_data[user_id]["stage"] = "template"
-        await update.message.reply_text(f"Выбери шаблон:", reply_markup=ReplyKeyboardMarkup([["Стандарт", "Объявление"], ["Опрос", "Кейс"]], resize_keyboard=True))
-    elif mode == "post" and stage == "template":
-        user_data[user_id]["template"] = message
-        ideas = await generate_ideas(user_data[user_id]["topic"], user_data[user_id]["style"], user_id)
-        user_data[user_id]["stage"] = "ideas"
-        await update.message.reply_text(f"Вот идеи:\n" + "\n".join(ideas) + "\nВыбери номер (1, 2, 3)!")
-    elif mode == "post" and stage == "ideas":
-        if message.isdigit() and 1 <= int(message) <= 3:
-            user_data[user_id]["stage"] = "generating"
-            response = await generate_text(user_id, "post")
-            user_data[user_id]["mode"] = "main"
-            user_data[user_id]["stage"] = None
-            await update.message.reply_text(f"Вот твой пост:\n{response}", reply_markup=reply_markup)
-    elif message == "reels":
-        user_data[user_id]["mode"] = "reels"
-        user_data[user_id]["stage"] = "topic"
-        await update.message.reply_text(f"О чём снять Reels?")
-    elif mode == "reels" and stage == "topic":
-        user_data[user_id]["topic"] = message.replace(" ", "_")
-        ideas = await generate_ideas(user_data[user_id]["topic"], "дружелюбный", user_id)
-        user_data[user_id]["stage"] = None
-        await update.message.reply_text(f"Вот идеи для Reels:\n" + "\n".join(ideas), reply_markup=reply_markup)
-    elif message == "конкуренты":
-        user_data[user_id]["mode"] = "competitor_analysis"
-        user_data[user_id]["stage"] = "keyword"
-        await update.message.reply_text(f"Укажи ключевое слово конкурентов!")
-    elif mode == "competitor_analysis" and stage == "keyword":
-        user_data[user_id]["competitor_keyword"] = message
-        response = await generate_text(user_id, "competitor_analysis")
-        user_data[user_id]["stage"] = None
-        await update.message.reply_text(f"Анализ конкурентов:\n{response}", reply_markup=reply_markup)
-    elif message == "а/б тест":
-        user_data[user_id]["mode"] = "ab_testing"
-        user_data[user_id]["stage"] = "topic"
-        await update.message.reply_text(f"Для чего тестируем заголовки?")
-    elif mode == "ab_testing" and stage == "topic":
-        user_data[user_id]["topic"] = message.replace(" ", "_")
-        response = await generate_text(user_id, "ab_testing")
-        user_data[user_id]["stage"] = None
-        await update.message.reply_text(f"Вот 3 заголовка:\n{response}\nВыбери номер (1, 2, 3)!", reply_markup=reply_markup)
-    elif message == "стратеgia/контент-план":
-        user_data[user_id]["mode"] = "strategy"
-        user_data[user_id]["stage"] = "topic"
-        await update.message.reply_text(f"По какой теме стратегия?")
-    elif mode == "strategy" and stage == "topic":
-        user_data[user_id]["topic"] = message.replace(" ", "_")
-        user_data[user_id]["stage"] = "client"
-        await update.message.reply_text(f"Кто целевая аудитория?")
-    elif mode == "strategy" and stage == "client":
-        user_data[user_id]["client"] = message
-        user_data[user_id]["stage"] = "channels"
-        await update.message.reply_text(f"Какие каналы продвижения?")
-    elif mode == "strategy" and stage == "channels":
-        user_data[user_id]["channels"] = message
-        user_data[user_id]["stage"] = "result"
-        await update.message.reply_text(f"Какой результат нужен?")
-    elif mode == "strategy" and stage == "result":
-        user_data[user_id]["result"] = message
-        response = await generate_text(user_id, "strategy")
-        user_data[user_id]["mode"] = "main"
-        user_data[user_id]["stage"] = None
-        await update.message.reply_text(f"Вот стратегия:\n{response}", reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(f"Выбери действие!", reply_markup=reply_markup)
-
-# Webhook
-async def webhook(request):
-    try:
-        logger.info("Получен запрос на /webhook")
-        data = await request.json()
-        logger.info(f"Данные от Telegram: {data}")
-        update = Update.de_json(data, app.bot)
-        if update:
-            logger.info(f"Обработка обновления: {update}")
-            await app.process_update(update)
-            logger.info("Обновление обработано успешно")
-            return web.Response(text="OK", status=200)
+    if text == "Пост":
+        if subscription_type in ["lite", "full"]:
+            await update.message.reply_text("О чём написать пост? (укажи тему)")
+            return THEME
         else:
-            logger.warning("Получен пустой update")
-            return web.Response(text="No update", status=400)
-    except json.JSONDecodeError as e:
-        logger.error(f"Ошибка декодирования JSON: {e}")
-        return web.Response(text="Invalid JSON", status=400)
-    except Exception as e:
-        logger.error(f"Ошибка в webhook: {e}", exc_info=True)
-        return web.Response(text="Error", status=500)
+            await update.message.reply_text("Эта функция доступна только с подпиской. Оформи: /подписка")
+    else:
+        await update.message.reply_text("Я понимаю команды 'Пост' и '/стратегия'. Скоро добавлю больше функций! 😊")
 
-# Запуск
-async def main():
-    try:
-        logger.info("Инициализация приложения...")
-        await app.initialize()
-        app.add_handler(CommandHandler("start", handle_message))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        web_app = web.Application()
-        web_app.router.add_post('/webhook', webhook)
-        web_app.router.add_get('/health', health_check)
-        logger.info(f"Сервер готов, слушает порт {PORT}")
-        webhook_info = await app.bot.get_webhook_info()
-        logger.info(f"Текущий webhook: {webhook_info}")
-        return web_app
-    except Exception as e:
-        logger.error(f"Ошибка при запуске: {e}", exc_info=True)
-        raise
+# Обработчик для ConversationHandler (посты)
+async def theme(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    context.user_data['theme'] = update.message.text
 
-if __name__ == "__main__":
-    logger.info("Запуск бота...")
-    try:
-        web.run_app(main(), host="0.0.0.0", port=PORT)
-    except Exception as e:
-        logger.error(f"Критическая ошибка: {e}", exc_info=True)
+    if subscriptions[user_id] == "full":
+        await update.message.reply_text("Какой стиль текста? Формальный, Дружелюбный, Саркастичный")
+        return STYLE
+    else:
+        await update.message.reply_text("Выбери шаблон: Стандарт, Объявление, Опрос, Кейс")
+        return TEMPLATE
+
+async def style(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['style'] = update.message.text
+    await update.message.reply_text("Выбери шаблон: Стандарт, Объявление, Опрос, Кейс")
+    return TEMPLATE
+
+async def template(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['template'] = update.message.text
+    theme = context.user_data['theme']
+    style = context.user_data.get('style', 'Дружелюбный').lower()
+    template = context.user_data['template']
+
+    # Генерация идей (пока заглушка, можно добавить позже)
+    ideas = [
+        f"Идея 1: Показать пользу {theme} в стиле {style}",
+        f"Идея 2: Рассказать историю про {theme} в стиле {style}",
+        f"Идея 3: Создать опрос про {theme} в стиле {style}"
+    ]
+    context.user_data['ideas'] = ideas
+    await update.message.reply_text("Вот несколько идей:\n" + "\n".join(ideas) + "\n\nВыбери идею (1, 2, 3)")
+    return IDEAS
+
+async def ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    idea_number = update.message.text
+    theme = context.user_data['theme']
+    style = context.user_data.get('style', 'Дружелюбный').lower()
+    template = context.user_data['template']
+    ideas = context.user_data['ideas']
+
+    if idea_number in ["1", "2", "3"]:
+        idea = ideas[int(idea_number) - 1].split(": ")[1]
+    else:
+        idea = "Показать пользу темы"
+
+    # Загружаем промпт из JSON
+    post_prompt = PROMPTS.get("post", {}).get(style, "Создай пост на тему {theme} в формате {template}.")
+    post_prompt = post_prompt.format(
+        theme=theme,
+        template=template,
+        idea=idea,
+        goal="привлечение",
+        main_idea="показать пользу темы",
+        facts="основаны на реальных примерах",
+        pains="нехватка времени и информации"
+    )
+
+    # Генерируем пост через Together AI
+    post = generate_with_together(post_prompt)
+
+    # Генерируем хэштеги
+    hashtags = generate_hashtags(theme)
+
+    # Сохраняем результат для редактирования
+    context.user_data['last_result'] = post
+
+    await update.message.reply_text(f"Готовый пост:\n{post}\n\n{hashtags}\n\nЕсли хочешь отредактировать, напиши 'Отредактировать'")
+    return EDIT
+
+async def edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text.lower() == "отредактировать":
+        await update.message.reply_text("Что исправить в посте? (например, 'убери слово кофе')")
+        return EDIT
+    elif text.lower() == "отмена":
+        await update.message.reply_text("Отменено. Напиши 'Пост' или '/стратегия', чтобы начать заново.")
+        return ConversationHandler.END
+    else:
+        edit_request = text
+        last_result = context.user_data['last_result']
+        style = context.user_data.get('style', 'Дружелюбный').lower()
+        template = context.user_data['template']
+
+        # Формируем промпт для редактирования
+        edit_prompt = (
+            f"Перепиши текст на русском языке: '{last_result}' с учётом запроса пользователя: '{edit_request}'. "
+            f"Сохрани стиль: {style}, шаблон: {template}. Пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ, без иностранных слов. "
+            f"Верни только исправленный текст."
+        )
+
+        # Редактируем через Together AI
+        edited_post = generate_with_together(edit_prompt)
+
+        # Обновляем результат
+        context.user_data['last_result'] = edited_post
+
+        await update.message.reply_text(f"Исправленный пост:\n{edited_post}\n\nЕсли нужно ещё что-то изменить, напиши 'Отредактировать', или 'Отмена' для завершения.")
+        return EDIT
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Отменено. Напиши 'Пост' или '/стратегия', чтобы начать заново.")
+    return ConversationHandler.END
+
+# Основная функция
+def main():
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        logger.error("TELEGRAM_BOT_TOKEN не установлен")
+        return
+
+    application = Application.builder().token(token).build()
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("подписка", podpiska))
+
+    strategy_handler = ConversationHandler(
+        entry_points=[CommandHandler("стратегия", strategiya)],
+        states={
+            GOAL: [MessageHandler(Filters.text & ~Filters.command, goal)],
+            AUDIENCE: [MessageHandler(Filters.text & ~Filters.command, audience)],
+            PERIOD: [MessageHandler(Filters.text & ~Filters.command, period)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)]
+    )
+    application.add_handler(strategy_handler)
+
+    conv_handler = ConversationHandler(
+        entry_points=[MessageHandler(Filters.text & ~Filters.command, handle_message)],
+        states={
+            THEME: [MessageHandler(Filters.text & ~Filters.command, theme)],
+            STYLE: [MessageHandler(Filters.text & ~Filters.command, style)],
+            TEMPLATE: [MessageHandler(Filters.text & ~Filters.command, template)],
+            IDEAS: [MessageHandler(Filters.text & ~Filters.command, ideas)],
+            EDIT: [MessageHandler(Filters.text & ~Filters.command, edit)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)]
+    )
+    application.add_handler(conv_handler)
+
+    logger.info("Бот запущен")
+    application.run_polling()
+
+if __name__ == '__main__':
+    main()
