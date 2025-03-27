@@ -11,8 +11,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.units import mm
 from io import BytesIO
-import aiohttp
 import asyncio
+from aiohttp import web  # Исправленный импорт
 
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -419,7 +419,7 @@ application.add_handler(conv_handler)
 async def webhook(request):
     update = Update.de_json(await request.json(), application.bot)
     await application.process_update(update)
-    return aiohttp.web.Response(status=200)
+    return web.Response(status=200)  # Исправлено: aiohttp.web.Response -> web.Response
 
 async def on_startup(_):
     webhook_url = os.getenv("WEBHOOK_URL")
@@ -435,14 +435,14 @@ async def main():
     await application.initialize()
     
     # Создание веб-сервера
-    web_app = aiohttp.web.Application()
-    web_app.add_routes([aiohttp.web.post('/', webhook)])
+    web_app = web.Application()  # Исправлено: aiohttp.web.Application -> web.Application
+    web_app.add_routes([web.post('/', webhook)])  # Исправлено: aiohttp.web.post -> web.post
     web_app.on_startup.append(on_startup)
     
     # Запуск веб-сервера на порту 1000
-    runner = aiohttp.web.AppRunner(web_app)
+    runner = web.AppRunner(web_app)  # Исправлено: aiohttp.web.AppRunner -> web.AppRunner
     await runner.setup()
-    site = aiohttp.web.TCPSite(runner, '0.0.0.0', 1000)
+    site = web.TCPSite(runner, '0.0.0.0', 1000)  # Исправлено: aiohttp.web.TCPSite -> web.TCPSite
     await site.start()
     
     # Запуск бота
