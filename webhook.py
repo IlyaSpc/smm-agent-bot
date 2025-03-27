@@ -7,9 +7,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 async def webhook(request, application):
+    logger.info("Получен запрос на вебхук")
     try:
-        update = Update.de_json(await request.json(), application.bot)
-        await application.process_update(update)
+        data = await request.json()
+        logger.info(f"Данные запроса: {data}")
+        update = Update.de_json(data, application.bot)
+        if update:
+            logger.info(f"Обновление успешно обработано: {update}")
+            await application.process_update(update)
+            logger.info("Обновление отправлено в обработчик")
+        else:
+            logger.warning("Не удалось обработать обновление: update is None")
         return web.Response(status=200)
     except Exception as e:
         logger.error(f"Ошибка при обработке вебхука: {e}")

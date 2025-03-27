@@ -1,6 +1,6 @@
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, ConversationHandler
-from utils import check_subscription, generate_with_together, generate_hashtags, generate_pdf, PROMPTS, subscriptions  # Абсолютный импорт
+from utils import check_subscription, generate_with_together, generate_hashtags, generate_pdf, PROMPTS, subscriptions
 from datetime import datetime
 import logging
 
@@ -15,6 +15,7 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
 )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Команда /start получена от пользователя {update.effective_user.id}")
     user_id = update.effective_user.id
     check_subscription(user_id)
 
@@ -24,6 +25,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_text(welcome_message, reply_markup=MAIN_KEYBOARD)
+    logger.info("Ответ на /start отправлен")
 
 async def podpiska(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
