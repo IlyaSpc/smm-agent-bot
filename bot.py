@@ -1,7 +1,10 @@
 import os
 import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, filters
-from handlers import start, podpiska, strategiya, goal, audience, period, handle_message, theme, style, template, ideas, edit, cancel
+from handlers import (
+    start, podpiska, strategiya, goal, audience, period, handle_message, theme, style, template, ideas, edit, cancel,
+    THEME, STYLE, TEMPLATE, IDEAS, EDIT, GOAL, AUDIENCE, PERIOD  # Импортируем константы
+)
 from webhook import main
 from utils import load_state
 
