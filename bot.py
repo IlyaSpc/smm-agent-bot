@@ -11,6 +11,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.units import mm
 from io import BytesIO
+import aiohttp
+import asyncio
 
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -143,6 +145,14 @@ def generate_pdf(strategy_text):
     c.save()
     buffer.seek(0)
     return buffer
+
+# Инициализация Telegram бота
+token = os.getenv("TELEGRAM_BOT_TOKEN")
+if not token:
+    logger.error("TELEGRAM_BOT_TOKEN не установлен")
+    raise ValueError("TELEGRAM_BOT_TOKEN не установлен")
+
+application = Application.builder().token(token).build()
 
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -377,44 +387,70 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Отменено. Напиши 'Пост' или '/strategiya', чтобы начать заново.")
     return ConversationHandler.END
 
+# Регистрация обработчиков
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("podpiska", podpiska))
+
+strategy_handler = ConversationHandler(
+    entry_points=[CommandHandler("strategiya", strategiya)],
+    states={
+        GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, goal)],
+        AUDIENCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, audience)],
+        PERIOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, period)],
+    },
+    fallbacks=[CommandHandler("cancel", cancel)]
+)
+application.add_handler(strategy_handler)
+
+conv_handler = ConversationHandler(
+    entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)],
+    states={
+        THEME: [MessageHandler(filters.TEXT & ~filters.COMMAND, theme)],
+        STYLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, style)],
+        TEMPLATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, template)],
+        IDEAS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ideas)],
+        EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit)],
+    },
+    fallbacks=[CommandHandler("cancel", cancel)]
+)
+application.add_handler(conv_handler)
+
+# Настройка вебхука с aiohttp
+async def webhook(request):
+    update = Update.de_json(await request.json(), application.bot)
+    await application.process_update(update)
+    return aiohttp.web.Response(status=200)
+
+async def on_startup(_):
+    webhook_url = os.getenv("WEBHOOK_URL")
+    if not webhook_url:
+        logger.error("WEBHOOK_URL не установлен")
+        raise ValueError("WEBHOOK_URL не установлен")
+    await application.bot.setWebhook(url=webhook_url)
+    logger.info(f"Webhook установлен: {webhook_url}")
+
 # Основная функция
-def main():
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not token:
-        logger.error("TELEGRAM_BOT_TOKEN не установлен")
-        return
+async def main():
+    # Инициализация приложения
+    await application.initialize()
+    
+    # Создание веб-сервера
+    web_app = aiohttp.web.Application()
+    web_app.add_routes([aiohttp.web.post('/', webhook)])
+    web_app.on_startup.append(on_startup)
+    
+    # Запуск веб-сервера на порту 1000
+    runner = aiohttp.web.AppRunner(web_app)
+    await runner.setup()
+    site = aiohttp.web.TCPSite(runner, '0.0.0.0', 1000)
+    await site.start()
+    
+    # Запуск бота
+    await application.start()
+    logger.info("Бот запущен с вебхуком на порту 1000")
+    
+    # Бесконечный цикл для поддержания работы
+    await asyncio.Event().wait()
 
-    application = Application.builder().token(token).build()
-
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("podpiska", podpiska))
-
-    strategy_handler = ConversationHandler(
-        entry_points=[CommandHandler("strategiya", strategiya)],
-        states={
-            GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, goal)],
-            AUDIENCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, audience)],
-            PERIOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, period)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)]
-    )
-    application.add_handler(strategy_handler)
-
-    conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)],
-        states={
-            THEME: [MessageHandler(filters.TEXT & ~filters.COMMAND, theme)],
-            STYLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, style)],
-            TEMPLATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, template)],
-            IDEAS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ideas)],
-            EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)]
-    )
-    application.add_handler(conv_handler)
-
-    logger.info("Бот запущен")
-    application.run_polling()
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    asyncio.run(main())
