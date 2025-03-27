@@ -3,5 +3,5 @@ requests
 aiohttp
 speechrecognition
 pydub
-fpdf
 pytrends
+reportlab
