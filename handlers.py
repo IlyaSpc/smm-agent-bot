@@ -1,6 +1,6 @@
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, ConversationHandler
-from .utils import check_subscription, generate_with_together, generate_hashtags, generate_pdf, PROMPTS, subscriptions
+from utils import check_subscription, generate_with_together, generate_hashtags, generate_pdf, PROMPTS, subscriptions  # Абсолютный импорт
 from datetime import datetime
 import logging
 
@@ -37,7 +37,7 @@ async def podpiska(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(message, reply_markup=ReplyKeyboardRemove())
     else:
-        expiry_date = subscription_expiry[user_id].strftime("%Y-%m-%d") if subscription_expiry[user_id] else "навсегда"
+        expiry_date = subscriptions[user_id].strftime("%Y-%m-%d") if subscriptions[user_id] else "навсегда"
         await update.message.reply_text(
             f"У тебя уже есть подписка: {subscriptions[user_id]} (до {expiry_date}).\n"
             "Хочешь продлить или изменить подписку? Напиши /podpiska.",
