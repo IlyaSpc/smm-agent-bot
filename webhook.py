@@ -28,6 +28,7 @@ async def on_startup(_, application):
     if not webhook_url:
         logger.error("WEBHOOK_URL не установлен")
         raise ValueError("WEBHOOK_URL не установлен")
+    logger.info(f"Попытка установить вебхук на URL: {webhook_url}")
     await application.bot.setWebhook(url=webhook_url)
     logger.info(f"Webhook установлен: {webhook_url}")
 
@@ -40,9 +41,10 @@ async def main(application):
     
     runner = web.AppRunner(web_app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 1000)
+    port = int(os.getenv("PORT", 80))  # Изменяем порт на 80
+    site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     
     await application.start()
-    logger.info("Бот запущен с вебхуком на порту 1000")
+    logger.info(f"Бот запущен с вебхуком на порту {port}")
     await asyncio.Event().wait()
