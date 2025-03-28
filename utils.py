@@ -38,8 +38,12 @@ def save_state():
             "subscription_expiry": {k: v.isoformat() if v else None for k, v in subscription_expiry.items()},
             "trial_start": {k: v.isoformat() if v else None for k, v in trial_start.items()}
         }
-        with open("state.json", "w", encoding="utf-8") as f:
-            json.dump(state, f)
+        try:
+            with open("state.json", "w", encoding="utf-8") as f:
+                json.dump(state, f)
+            logger.info("Состояние успешно сохранено в state.json")
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении состояния в state.json: {e}")
 
 # Загрузка состояния из файла
 def load_state():
@@ -56,8 +60,11 @@ def load_state():
                 k: datetime.fromisoformat(v) if v else None
                 for k, v in state["trial_start"].items()
             })
+        logger.info("Состояние успешно загружено из state.json")
     except FileNotFoundError:
         logger.info("Файл state.json не найден, начинаем с чистого состояния")
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке состояния из state.json: {e}")
 
 def generate_with_together(prompt):
     if not TOGETHER_API_KEY:
@@ -110,31 +117,48 @@ def generate_hashtags(topic):
     return " ".join(combined)
 
 def check_subscription(user_id):
+    logger.info(f"Проверка подписки для пользователя {user_id}")
     with state_lock:
-        if user_id == DEVELOPER_ID:
-            subscriptions[user_id] = "lifetime"
-            subscription_expiry[user_id] = None
-            save_state()
-            return True
-        if user_id not in subscriptions or subscriptions[user_id] == "none":
-            if user_id not in trial_start:
-                trial_start[user_id] = datetime.now()
-                subscriptions[user_id] = "full"
-                subscription_expiry[user_id] = trial_start[user_id] + timedelta(days=3)
+        try:
+            if user_id == DEVELOPER_ID:
+                subscriptions[user_id] = "lifetime"
+                subscription_expiry[user_id] = None
                 save_state()
+                logger.info(f"Пользователь {user_id} является разработчиком, подписка lifetime")
                 return True
-            else:
-                if datetime.now() > subscription_expiry[user_id]:
+            if user_id not in subscriptions or subscriptions[user_id] == "none":
+                if user_id not in trial_start:
+                    trial_start[user_id] = datetime.now()
+                    subscriptions[user_id] = "full"
+                    subscription_expiry[user_id] = trial_start[user_id] + timedelta(days=3)
+                    save_state()
+                    logger.info(f"Пользователь {user_id} получил пробный период на 3 дня")
+                    return True
+                else:
+                    current_time = datetime.now()
+                    expiry_time = subscription_expiry[user_id]
+                    logger.info(f"Сравнение времени: текущее {current_time}, истекает {expiry_time}")
+                    if current_time > expiry_time:
+                        subscriptions[user_id] = "none"
+                        save_state()
+                        logger.info(f"Пробный период пользователя {user_id} истёк")
+                        return False
+                    logger.info(f"Пробный период пользователя {user_id} ещё действует")
+                    return True
+            if subscriptions[user_id] in ["lite", "full"]:
+                current_time = datetime.now()
+                expiry_time = subscription_expiry[user_id]
+                logger.info(f"Сравнение времени: текущее {current_time}, истекает {expiry_time}")
+                if current_time > expiry_time:
                     subscriptions[user_id] = "none"
                     save_state()
+                    logger.info(f"Подписка пользователя {user_id} истекла")
                     return False
-                return True
-        if subscriptions[user_id] in ["lite", "full"]:
-            if datetime.now() > subscription_expiry[user_id]:
-                subscriptions[user_id] = "none"
-                save_state()
-                return False
-        return True
+                logger.info(f"Подписка пользователя {user_id} ещё действует")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка в check_subscription: {e}")
+            raise
 
 def generate_pdf(strategy_text):
     buffer = BytesIO()

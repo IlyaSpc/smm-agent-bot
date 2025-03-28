@@ -17,15 +17,26 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Команда /start получена от пользователя {update.effective_user.id}")
     user_id = update.effective_user.id
-    check_subscription(user_id)
+    logger.info("Проверка подписки...")
+    try:
+        check_subscription(user_id)
+        logger.info("Проверка подписки прошла успешно")
+    except Exception as e:
+        logger.error(f"Ошибка в check_subscription: {e}")
+        await update.message.reply_text("Произошла ошибка при проверке подписки. Попробуй позже! 😔")
+        return
 
     welcome_message = (
         "Привет! Я SMM-помощник в создании контента. 🎉\n"
         "У тебя 3 дня бесплатного доступа к Полной версии! Попробуй сгенерировать пост, идеи для Reels или стратегию и контент план."
     )
-
-    await update.message.reply_text(welcome_message, reply_markup=MAIN_KEYBOARD)
-    logger.info("Ответ на /start отправлен")
+    logger.info("Отправка приветственного сообщения...")
+    try:
+        await update.message.reply_text(welcome_message, reply_markup=MAIN_KEYBOARD)
+        logger.info("Ответ на /start отправлен")
+    except Exception as e:
+        logger.error(f"Ошибка при отправке сообщения: {e}")
+        await update.message.reply_text("Произошла ошибка при отправке сообщения. Попробуй позже! 😔")
 
 async def podpiska(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -105,12 +116,6 @@ async def period(update: Update, context: ContextTypes.DEFAULT_TYPE):
     strategy_text = generate_with_together(strategy_prompt)
     hashtags = generate_hashtags("мода")
     pdf_buffer = generate_pdf(strategy_text)
-
-    await update.message.reply_document(
-        document=pdf_buffer,
-        filename=f"SMM_Strategy_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-        caption=f"Вот твоя SMM-стратегия и контент-план! 📄\n\n{hashtags}"
-    )
 
     await update.message.reply_text("Что дальше?", reply_markup=MAIN_KEYBOARD)
     return ConversationHandler.END
