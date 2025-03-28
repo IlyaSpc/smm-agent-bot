@@ -1,3 +1,4 @@
+import os  # Добавляем импорт
 import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from webhook import main as webhook_main
