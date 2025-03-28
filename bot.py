@@ -1,53 +1,27 @@
-import os
 import logging
-from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, filters
-from handlers import (
-    start, podpiska, strategiya, goal, audience, period, handle_message, theme, style, template, ideas, edit, cancel,
-    THEME, STYLE, TEMPLATE, IDEAS, EDIT, GOAL, AUDIENCE, PERIOD  # Импортируем константы
-)
-from webhook import main
-from utils import load_state
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from webhook import main as webhook_main
+from handlers import start, handle_message, handle_text, handle_voice
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Загружаем состояние при старте
-load_state()
+async def error_handler(update, context):
+    logger.error(f"Произошла ошибка: {context.error}", exc_info=True)
+    if update and update.message:
+        await update.message.reply_text("Ой, что-то пошло не так 😅 Попробуй ещё разок!")
 
-token = os.getenv("TELEGRAM_BOT_TOKEN")
-if not token:
-    logger.error("TELEGRAM_BOT_TOKEN не установлен")
-    raise ValueError("TELEGRAM_BOT_TOKEN не установлен")
-
-application = Application.builder().token(token).build()
-
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("podpiska", podpiska))
-
-strategy_handler = ConversationHandler(
-    entry_points=[CommandHandler("strategiya", strategiya)],
-    states={
-        GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, goal)],
-        AUDIENCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, audience)],
-        PERIOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, period)],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)]
-)
-application.add_handler(strategy_handler)
-
-conv_handler = ConversationHandler(
-    entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)],
-    states={
-        THEME: [MessageHandler(filters.TEXT & ~filters.COMMAND, theme)],
-        STYLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, style)],
-        TEMPLATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, template)],
-        IDEAS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ideas)],
-        EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit)],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)]
-)
-application.add_handler(conv_handler)
+def run():
+    logger.info("Запуск бота... 🚀")
+    app = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).read_timeout(30).write_timeout(30).build()
+    app.add_error_handler(error_handler)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", handle_message))
+    app.add_handler(CommandHandler("lang", handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    return app
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main(application))
+    app = run()
+    webhook_main(app)
