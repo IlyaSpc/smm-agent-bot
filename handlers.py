@@ -36,10 +36,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start(update, context)
         return
 
-    # Добавляем обработку текстовых команд
+    # Обработка текстовых команд
     if message == "пост":
         await update.message.reply_text("Укажи тему для поста (например, 'кофе'):")
-        context.user_data['action'] = 'generate_post'  # Сохраняем действие
+        context.user_data['action'] = 'generate_post'
         return
     elif message == "рилс":
         await update.message.reply_text("Укажи тему для Reels (например, 'утренний ритуал'):")
@@ -58,43 +58,65 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['action'] = 'ab_test'
         return
 
-    # Если команда не распознана, отправляем стандартный ответ
+    # Если команда не распознана
     await update.message.reply_text("Выбери действие из кнопок ниже:", reply_markup=MAIN_KEYBOARD)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Обработка текстового сообщения от {update.message.from_user.id}: {update.message.text}")
     # Проверяем, есть ли сохранённое действие
     action = context.user_data.get('action')
+    message = update.message.text.strip()
+
     if action:
-        message = update.message.text.strip()
         if action == 'generate_post':
             # Генерируем пост
             prompt = PROMPTS['post']['дружелюбный'].format(theme=message, template="короткий пост")
-            text = generate_with_together(prompt)
-            await update.message.reply_text(f"Вот твой пост:\n\n{text}")
-            context.user_data['action'] = None  # Сбрасываем действие
+            try:
+                text = generate_with_together(prompt)
+                await update.message.reply_text(f"Вот твой пост:\n\n{text}")
+            except Exception as e:
+                logger.error(f"Ошибка при генерации поста: {e}")
+                await update.message.reply_text("Произошла ошибка при генерации поста. Попробуй снова!")
+            context.user_data['action'] = None
         elif action == 'generate_reels':
             # Генерируем идею для Reels
             prompt = f"Придумай идею для Reels на тему '{message}'."
-            text = generate_with_together(prompt)
-            await update.message.reply_text(f"Вот идея для Reels:\n\n{text}")
+            try:
+                text = generate_with_together(prompt)
+                await update.message.reply_text(f"Вот идея для Reels:\n\n{text}")
+            except Exception as e:
+                logger.error(f"Ошибка при генерации Reels: {e}")
+                await update.message.reply_text("Произошла ошибка при генерации Reels. Попробуй снова!")
             context.user_data['action'] = None
         elif action == 'generate_strategy':
-            # Генерируем стратегию
-            prompt = PROMPTS['strategy']['engagement'].format(audience="молодёжь", period="1 месяц")
-            text = generate_with_together(prompt)
-            await update.message.reply_text(f"Вот твоя стратегия:\n\n{text}")
+            # Генерируем стратегию на основе введённой цели
+            goal = message
+            prompt = f"Создай SMM-стратегию для достижения цели '{goal}' для аудитории 'молодёжь' на период 1 месяц."
+            try:
+                text = generate_with_together(prompt)
+                await update.message.reply_text(f"Вот твоя стратегия:\n\n{text}")
+            except Exception as e:
+                logger.error(f"Ошибка при генерации стратегии: {e}")
+                await update.message.reply_text("Произошла ошибка при генерации стратегии. Попробуй снова!")
             context.user_data['action'] = None
         elif action == 'generate_hashtags':
             # Генерируем хэштеги
-            hashtags = generate_hashtags(message)
-            await update.message.reply_text(f"Вот хэштеги:\n\n{hashtags}")
+            try:
+                hashtags = generate_hashtags(message)
+                await update.message.reply_text(f"Вот хэштеги:\n\n{hashtags}")
+            except Exception as e:
+                logger.error(f"Ошибка при генерации хэштегов: {e}")
+                await update.message.reply_text("Произошла ошибка при генерации хэштегов. Попробуй снова!")
             context.user_data['action'] = None
         elif action == 'ab_test':
             # Генерируем варианты для А/Б теста
             prompt = f"Придумай два варианта для А/Б теста: {message}."
-            text = generate_with_together(prompt)
-            await update.message.reply_text(f"Вот варианты для А/Б теста:\n\n{text}")
+            try:
+                text = generate_with_together(prompt)
+                await update.message.reply_text(f"Вот варианты для А/Б теста:\n\n{text}")
+            except Exception as e:
+                logger.error(f"Ошибка при генерации А/Б теста: {e}")
+                await update.message.reply_text("Произошла ошибка при генерации А/Б теста. Попробуй снова!")
             context.user_data['action'] = None
     else:
         # Если действия нет, просто обрабатываем сообщение
