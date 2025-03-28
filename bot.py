@@ -1,5 +1,6 @@
-import os  # Добавляем импорт
+import os
 import logging
+import asyncio  # Добавляем asyncio для работы с асинхронными функциями
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from webhook import main as webhook_main
 from handlers import start, handle_message, handle_text, handle_voice
@@ -25,4 +26,4 @@ def run():
 
 if __name__ == "__main__":
     app = run()
-    webhook_main(app)
+    asyncio.run(webhook_main(app))  # Запускаем асинхронную функцию через asyncio.run
