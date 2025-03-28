@@ -15,6 +15,11 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+STYLE_KEYBOARD = ReplyKeyboardMarkup(
+    [["Дружелюбный", "Профессиональный"], ["Вдохновляющий"]],
+    resize_keyboard=True
+)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Команда /start получена от пользователя {update.effective_user.id}")
     user_id = update.effective_user.id
@@ -39,11 +44,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Обработка текстовых команд
     if message == "пост":
         await update.message.reply_text("Укажи тему для поста (например, 'кофе'):")
-        context.user_data['action'] = 'generate_post'
+        context.user_data['action'] = 'post_theme'
         return
     elif message == "рилс":
         await update.message.reply_text("Укажи тему для Reels (например, 'утренний ритуал'):")
-        context.user_data['action'] = 'generate_reels'
+        context.user_data['action'] = 'reels_theme'
         return
     elif message == "стратегия":
         await update.message.reply_text("Укажи цель стратегии (например, 'увеличить вовлечённость'):")
@@ -63,63 +68,87 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Обработка текстового сообщения от {update.message.from_user.id}: {update.message.text}")
-    # Проверяем, есть ли сохранённое действие
     action = context.user_data.get('action')
-    message = update.message.text.strip()
+    message = update.message.text.strip().lower()
 
     if action:
-        if action == 'generate_post':
-            # Генерируем пост
-            prompt = PROMPTS['post']['дружелюбный'].format(theme=message, template="короткий пост")
+        if action == 'post_theme':
+            # Сохраняем тему и запрашиваем стиль
+            context.user_data['theme'] = message
+            await update.message.reply_text("Выбери стиль поста:", reply_markup=STYLE_KEYBOARD)
+            context.user_data['action'] = 'post_style'
+        elif action == 'post_style':
+            # Генерируем три варианта поста в выбранном стиле
+            theme = context.user_data.get('theme')
+            style = message
+            prompt = f"Сгенерируй три варианта короткого поста на русском языке на тему '{theme}' в стиле '{style}'."
             try:
                 text = generate_with_together(prompt)
-                await update.message.reply_text(f"Вот твой пост:\n\n{text}")
+                await update.message.reply_text(f"Вот твои посты:\n\n{text}", reply_markup=MAIN_KEYBOARD)
             except Exception as e:
                 logger.error(f"Ошибка при генерации поста: {e}")
-                await update.message.reply_text("Произошла ошибка при генерации поста. Попробуй снова!")
+                await update.message.reply_text("Произошла ошибка при генерации поста. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
             context.user_data['action'] = None
-        elif action == 'generate_reels':
-            # Генерируем идею для Reels
-            prompt = f"Придумай идею для Reels на тему '{message}'."
+            context.user_data['theme'] = None
+        elif action == 'reels_theme':
+            # Сохраняем тему и запрашиваем стиль
+            context.user_data['theme'] = message
+            await update.message.reply_text("Выбери стиль для Reels:", reply_markup=STYLE_KEYBOARD)
+            context.user_data['action'] = 'reels_style'
+        elif action == 'reels_style':
+            # Генерируем три варианта идей для Reels в выбранном стиле
+            theme = context.user_data.get('theme')
+            style = message
+            prompt = f"Сгенерируй три варианта идей для Reels на русском языке на тему '{theme}' в стиле '{style}'."
             try:
                 text = generate_with_together(prompt)
-                await update.message.reply_text(f"Вот идея для Reels:\n\n{text}")
+                await update.message.reply_text(f"Вот идеи для Reels:\n\n{text}", reply_markup=MAIN_KEYBOARD)
             except Exception as e:
                 logger.error(f"Ошибка при генерации Reels: {e}")
-                await update.message.reply_text("Произошла ошибка при генерации Reels. Попробуй снова!")
+                await update.message.reply_text("Произошла ошибка при генерации Reels. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
             context.user_data['action'] = None
+            context.user_data['theme'] = None
         elif action == 'generate_strategy':
-            # Генерируем стратегию на основе введённой цели
+            # Генерируем стратегию с контент-планом и отправляем в PDF
             goal = message
-            prompt = f"Создай SMM-стратегию для достижения цели '{goal}' для аудитории 'молодёжь' на период 1 месяц."
+            prompt = (
+                f"Создай SMM-стратегию на русском языке для достижения цели '{goal}' для аудитории 'молодёжь' на период 1 месяц. "
+                f"Включи в стратегию: 1) Цели и аудиторию, 2) Типы контента, 3) Календарь контента, 4) Стратегию вовлечения, "
+                f"5) Сотрудничество с инфлюенсерами, 6) Платную рекламу, 7) Метрики и оценку, 8) Контент-план на 1 месяц с конкретными идеями постов и сторис."
+            )
             try:
                 text = generate_with_together(prompt)
-                await update.message.reply_text(f"Вот твоя стратегия:\n\n{text}")
+                # Генерируем PDF
+                pdf_path = f"strategy_{update.effective_user.id}.pdf"
+                generate_pdf(text, pdf_path)
+                # Отправляем PDF
+                with open(pdf_path, 'rb') as pdf_file:
+                    await update.message.reply_document(document=pdf_file, caption="Вот твоя стратегия в PDF:")
+                os.remove(pdf_path)  # Удаляем временный файл
             except Exception as e:
                 logger.error(f"Ошибка при генерации стратегии: {e}")
-                await update.message.reply_text("Произошла ошибка при генерации стратегии. Попробуй снова!")
+                await update.message.reply_text("Произошла ошибка при генерации стратегии. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
             context.user_data['action'] = None
         elif action == 'generate_hashtags':
             # Генерируем хэштеги
             try:
                 hashtags = generate_hashtags(message)
-                await update.message.reply_text(f"Вот хэштеги:\n\n{hashtags}")
+                await update.message.reply_text(f"Вот хэштеги:\n\n{hashtags}", reply_markup=MAIN_KEYBOARD)
             except Exception as e:
                 logger.error(f"Ошибка при генерации хэштегов: {e}")
-                await update.message.reply_text("Произошла ошибка при генерации хэштегов. Попробуй снова!")
+                await update.message.reply_text("Произошла ошибка при генерации хэштегов. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
             context.user_data['action'] = None
         elif action == 'ab_test':
             # Генерируем варианты для А/Б теста
-            prompt = f"Придумай два варианта для А/Б теста: {message}."
+            prompt = f"Сгенерируй на русском языке два варианта для А/Б теста: {message}."
             try:
                 text = generate_with_together(prompt)
-                await update.message.reply_text(f"Вот варианты для А/Б теста:\n\n{text}")
+                await update.message.reply_text(f"Вот варианты для А/Б теста:\n\n{text}", reply_markup=MAIN_KEYBOARD)
             except Exception as e:
                 logger.error(f"Ошибка при генерации А/Б теста: {e}")
-                await update.message.reply_text("Произошла ошибка при генерации А/Б теста. Попробуй снова!")
+                await update.message.reply_text("Произошла ошибка при генерации А/Б теста. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
             context.user_data['action'] = None
     else:
-        # Если действия нет, просто обрабатываем сообщение
         await handle_message(update, context)
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
