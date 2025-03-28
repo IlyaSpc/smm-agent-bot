@@ -117,6 +117,12 @@ async def period(update: Update, context: ContextTypes.DEFAULT_TYPE):
     hashtags = generate_hashtags("мода")
     pdf_buffer = generate_pdf(strategy_text)
 
+    await update.message.reply_document(
+        document=pdf_buffer,
+        filename=f"SMM_Strategy_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+        caption=f"Вот твоя SMM-стратегия и контент-план! 📄\n\n{hashtags}"
+    )
+
     await update.message.reply_text("Что дальше?", reply_markup=MAIN_KEYBOARD)
     return ConversationHandler.END
 
