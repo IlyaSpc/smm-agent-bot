@@ -233,4 +233,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"Вот варианты для А/Б теста:\n\n{text}", reply_markup=MAIN_KEYBOARD)
             except Exception as e:
                 logger.error(f"Ошибка при генерации А/Б теста: {e}")
-               
+                await update.message.reply_text("Произошла ошибка при генерации А/Б теста. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
+            context.user_data['action'] = None
+    else:
+        await handle_message(update, context)
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает голосовые сообщения."""
+    logger.info("Вызов handle_voice")
+    voice_file = await update.message.voice.get_file()
+    file_path = f"voice_{update.message.message_id}.ogg"
+    await voice_file.download_to_drive(file_path)
+    await update.message.reply_text("Голосовые сообщения пока не поддерживаются.")
+    os.remove(file_path)
