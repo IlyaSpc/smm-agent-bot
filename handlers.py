@@ -38,7 +38,7 @@ async def generate_post(theme: str, style: str) -> list[str]:
         )
         try:
             response = together_client.completions.create(
-                model="meta-llama/Llama-2-7b-chat-hf",  # Бесплатная модель
+                model="meta-llama/Llama-3-8b-chat-hf",
                 prompt=prompt,
                 max_tokens=200,
                 temperature=0.7,
@@ -70,7 +70,7 @@ async def generate_strategy(goal: str, audience: str, period: str) -> str:
     )
     try:
         response = together_client.completions.create(
-            model="meta-llama/Llama-2-7b-chat-hf",  # Бесплатная модель
+            model="meta-llama/Llama-3-8b-chat-hf",
             prompt=prompt,
             max_tokens=600,
             temperature=0.7,
@@ -85,6 +85,41 @@ async def generate_strategy(goal: str, audience: str, period: str) -> str:
     except Exception as e:
         logger.error(f"Ошибка при генерации стратегии: {e}")
         return "Не удалось сгенерировать стратегию. Попробуйте снова!"
+
+# Генерация идей для Рилсов
+async def generate_reels_idea(theme: str) -> str:
+    prompt = (
+        f"Составь идею для короткого видео (Рилс) на тему '{theme}'. "
+        f"Опиши концепцию, сценарий и ключевые моменты видео. Не более 10 предложений."
+    )
+    try:
+        response = together_client.completions.create(
+            model="meta-llama/Llama-3-8b-chat-hf",
+            prompt=prompt,
+            max_tokens=200,
+            temperature=0.7,
+        )
+        idea = response.choices[0].text.strip()
+        return idea
+    except Exception as e:
+        logger.error(f"Ошибка при генерации идеи для Рилса: {e}")
+        return "Не удалось сгенерировать идею для Рилса. Попробуйте снова!"
+
+# Генерация хештегов
+async def generate_hashtags(theme: str) -> str:
+    prompt = f"Сгенерируй 5-7 хэштегов на русском языке для темы '{theme}'."
+    try:
+        response = together_client.completions.create(
+            model="meta-llama/Llama-3-8b-chat-hf",
+            prompt=prompt,
+            max_tokens=100,
+            temperature=0.7,
+        )
+        hashtags = response.choices[0].text.strip()
+        return hashtags
+    except Exception as e:
+        logger.error(f"Ошибка при генерации хештегов: {e}")
+        return "Не удалось сгенерировать хештеги. Попробуйте снова!"
 
 # Создание PDF
 def create_pdf(content: str, filename: str):
@@ -128,6 +163,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "стратегия" in text:
         context.user_data["state"] = "strategy_goal"
         await update.message.reply_text("Укажи цель стратегии:")
+    elif "идеи для рилсов" in text or "рилс" in text:
+        context.user_data["state"] = "reels_theme"
+        await update.message.reply_text("Укажи тему для идеи Рилса:")
+    elif "генерация хештегов" in text or "хештеги" in text:
+        context.user_data["state"] = "hashtags_theme"
+        await update.message.reply_text("Укажи тему для генерации хештегов:")
     elif context.user_data.get("state") == "post_theme":
         context.user_data["post_theme"] = text
         context.user_data["state"] = "post_style"
@@ -135,7 +176,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Выбери стиль:",
             reply_markup=ReplyKeyboardMarkup([
                 ["Дружелюбный", "Профессиональный", "Вдохновляющий"]
-            ], one_time_keyboard=True, resize_keyboard=True)  # Добавлен resize_keyboard
+            ], one_time_keyboard=True, resize_keyboard=True)
         )
     elif context.user_data.get("state") == "post_style":
         style = text
@@ -149,8 +190,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Что-то пошло не так. Попробуйте снова.")
         finally:
             context.user_data.pop("state", None)
-            context.user_data.pop("post_theme", None)
-            await update.message.reply_text(  # Возврат в главное меню
+            await update.message.reply_text(
                 "Хочешь создать что-то ещё?",
                 reply_markup=ReplyKeyboardMarkup([
                     ["Создать пост", "Стратегия контента"],
@@ -183,9 +223,41 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Что-то пошло не так. Попробуйте снова.")
         finally:
             context.user_data.pop("state", None)
-            context.user_data.pop("strategy_goal", None)
-            context.user_data.pop("strategy_audience", None)
-            await update.message.reply_text(  # Возврат в главное меню
+            await update.message.reply_text(
+                "Хочешь создать что-то ещё?",
+                reply_markup=ReplyKeyboardMarkup([
+                    ["Создать пост", "Стратегия контента"],
+                    ["Генерация хештегов", "Идеи для Рилсов", "А/Б тест"]
+                ], resize_keyboard=True)
+            )
+    elif context.user_data.get("state") == "reels_theme":
+        theme = text
+        try:
+            idea = await generate_reels_idea(theme)
+            await update.message.reply_text(f"Вот твоя идея для Рилса:\n{idea}")
+        except Exception as e:
+            logger.error(f"Ошибка при генерации идеи для Рилса: {e}")
+            await update.message.reply_text("Что-то пошло не так. Попробуйте снова.")
+        finally:
+            context.user_data.pop("state", None)
+            await update.message.reply_text(
+                "Хочешь создать что-то ещё?",
+                reply_markup=ReplyKeyboardMarkup([
+                    ["Создать пост", "Стратегия контента"],
+                    ["Генерация хештегов", "Идеи для Рилсов", "А/Б тест"]
+                ], resize_keyboard=True)
+            )
+    elif context.user_data.get("state") == "hashtags_theme":
+        theme = text
+        try:
+            hashtags = await generate_hashtags(theme)
+            await update.message.reply_text(f"Вот твои хештеги:\n{hashtags}")
+        except Exception as e:
+            logger.error(f"Ошибка при генерации хештегов: {e}")
+            await update.message.reply_text("Что-то пошло не так. Попробуйте снова.")
+        finally:
+            context.user_data.pop("state", None)
+            await update.message.reply_text(
                 "Хочешь создать что-то ещё?",
                 reply_markup=ReplyKeyboardMarkup([
                     ["Создать пост", "Стратегия контента"],
@@ -198,7 +270,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Обработчик ошибок
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error {context.error}")
-    await update.message.reply_text("Произошла ошибка. Попробуйте позже!")
+    if update and update.message:
+        await update.message.reply_text("Произошла ошибка. Попробуйте снова!")
 
 # Основная функция запуска
 def main():
