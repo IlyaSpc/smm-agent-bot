@@ -22,12 +22,17 @@ STYLE_KEYBOARD = ReplyKeyboardMarkup(
 )
 
 def remove_english_text(text):
-    """Удаляет строки, содержащие английские слова."""
+    """Удаляет строки, содержащие английские слова, кроме названий платформ."""
     lines = text.split('\n')
     filtered_lines = []
+    # Список исключений (названия платформ и термины)
+    allowed_words = {'facebook', 'instagram', 'mention', 'hashtag', 'reels', 'stories', 'post', 'content', 'strategy'}
     for line in lines:
-        # Проверяем, есть ли в строке английские буквы
-        if not re.search(r'[a-zA-Z]', line):
+        # Ищем английские слова
+        words = re.findall(r'\b[a-zA-Z]+\b', line.lower())
+        # Проверяем, есть ли слова, которые не входят в список исключений
+        has_forbidden_english = any(word not in allowed_words for word in words)
+        if not has_forbidden_english:
             filtered_lines.append(line)
         else:
             logger.info(f"Удалена строка с английским текстом: {line}")
@@ -38,12 +43,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     check_subscription(user_id)
 
-    welcome_message = (
-        "Привет! Я SMM-помощник в создании контента. 🎉\n"
-        "У тебя 3 дня бесплатного доступа к Полной версии! Попробуй сгенерировать пост, идеи для Reels или стратегию и контент план."
-    )
-    await update.message.reply_text(welcome_message, reply_markup=MAIN_KEYBOARD)
-    logger.info("Ответ на /start отправлен")
+    # Запрашиваем имя пользователя
+    await update.message.reply_text("Привет! Я твой SMM-помощник, и я здесь, чтобы помочь тебе создавать крутой контент! 😊 Как тебя зовут?")
+    context.user_data['action'] = 'ask_name'
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -56,28 +58,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Обработка текстовых команд
     if message == "пост":
-        await update.message.reply_text("Укажи тему для поста (например, 'кофе'):")
+        await update.message.reply_text("Давай создадим пост! 🌟 Укажи тему (например, 'кофе'):")
         context.user_data['action'] = 'post_theme'
         return
     elif message == "рилс":
-        await update.message.reply_text("Укажи тему для Reels (например, 'утренний ритуал'):")
+        await update.message.reply_text("Придумаем идеи для Reels! 🎥 Укажи тему (например, 'утренний ритуал'):")
         context.user_data['action'] = 'reels_theme'
         return
     elif message == "стратегия":
-        await update.message.reply_text("Укажи цель стратегии (например, 'увеличить вовлечённость'):")
+        await update.message.reply_text("Давай составим стратегию! 📈 Укажи цель (например, 'увеличить вовлечённость'):")
         context.user_data['action'] = 'strategy_goal'
         return
     elif message == "хештеги":
-        await update.message.reply_text("Укажи тему для хэштегов (например, 'путешествия'):")
+        await update.message.reply_text("Сгенерирую хэштеги для тебя! 🔖 Укажи тему (например, 'путешествия'):")
         context.user_data['action'] = 'generate_hashtags'
         return
     elif message == "а/б тест":
-        await update.message.reply_text("Укажи, что ты хочешь протестировать (например, 'два варианта поста'):")
+        await update.message.reply_text("Давай проведём А/Б тест! 🧪 Укажи, что хочешь протестировать (например, 'два варианта поста'):")
         context.user_data['action'] = 'ab_test'
         return
 
     # Если команда не распознана
-    await update.message.reply_text("Выбери действие из кнопок ниже:", reply_markup=MAIN_KEYBOARD)
+    await update.message.reply_text("Выбери, что будем делать, из кнопок ниже! 😊", reply_markup=MAIN_KEYBOARD)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Обработка текстового сообщения от {update.message.from_user.id}: {update.message.text}")
@@ -85,34 +87,48 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message.text.strip().lower()
 
     if action:
-        if action == 'post_theme':
+        if action == 'ask_name':
+            # Сохраняем имя пользователя
+            user_name = update.message.text.strip()
+            context.user_data['user_name'] = user_name
+            await update.message.reply_text(
+                f"Приятно познакомиться, {user_name}! 🎉 У тебя 3 дня бесплатного доступа к Полной версии! "
+                "Давай попробуем сгенерировать пост, идеи для Reels или стратегию с контент-планом. Что выберешь? 😊",
+                reply_markup=MAIN_KEYBOARD
+            )
+            context.user_data['action'] = None
+        elif action == 'post_theme':
             # Сохраняем тему и запрашиваем стиль
             context.user_data['theme'] = message
-            await update.message.reply_text("Выбери стиль поста:", reply_markup=STYLE_KEYBOARD)
+            await update.message.reply_text("Отлично! Теперь выбери стиль для поста: 😊", reply_markup=STYLE_KEYBOARD)
             context.user_data['action'] = 'post_style'
         elif action == 'post_style':
             # Генерируем три варианта поста в выбранном стиле
             theme = context.user_data.get('theme')
             style = message
-            prompt = f"Сгенерируй три варианта короткого поста на русском языке на тему '{theme}' в стиле '{style}'. Весь текст должен быть строго на русском языке, без английских слов. Каждый вариант должен быть отделён пустой строкой."
+            prompt = (
+                f"Сгенерируй ровно три варианта короткого поста на русском языке на тему '{theme}' в стиле '{style}'. "
+                f"Весь текст должен быть строго на русском языке, без английских слов. "
+                f"Каждый вариант должен быть отделён двумя пустыми строками (\n\n). "
+                f"Не добавляй заголовки вроде 'Вариант 1' или 'Вот три варианта поста', просто текст постов."
+            )
             try:
                 text = generate_with_together(prompt)
-                # Удаляем английский текст, если он всё же появился
                 text = remove_english_text(text)
-                # Сохраняем варианты
                 variants = [v.strip() for v in text.split('\n\n') if v.strip()]
                 context.user_data['post_variants'] = variants
                 if len(variants) != 3:
                     logger.warning(f"Сгенерировано {len(variants)} вариантов вместо 3: {text}")
-                    await update.message.reply_text("Произошла ошибка: сгенерировано неправильное количество вариантов. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
+                    await update.message.reply_text("Ой, что-то пошло не так! 😓 Сгенерировано неправильное количество вариантов. Давай попробуем снова?", reply_markup=MAIN_KEYBOARD)
                     context.user_data['action'] = None
                     context.user_data['theme'] = None
                     return
-                await update.message.reply_text(f"Вот твои посты:\n\n{text}\n\nВыбери вариант: 1, 2 или 3")
+                formatted_text = "\n\n".join([f"**Вариант {i+1}**\n{v}" for i, v in enumerate(variants)])
+                await update.message.reply_text(f"Вот твои посты! 🌟\n\n{formatted_text}\n\nКакой вариант выбираешь? Напиши 1, 2 или 3! 😊")
                 context.user_data['action'] = 'post_select'
             except Exception as e:
                 logger.error(f"Ошибка при генерации поста: {e}")
-                await update.message.reply_text("Произошла ошибка при генерации поста. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
+                await update.message.reply_text("Ой, что-то пошло не так при генерации поста! 😓 Давай попробуем снова?", reply_markup=MAIN_KEYBOARD)
                 context.user_data['action'] = None
                 context.user_data['theme'] = None
         elif action == 'post_select':
@@ -122,12 +138,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 choice = int(message) - 1
                 if 0 <= choice < len(variants):
                     selected_post = variants[choice]
-                    await update.message.reply_text(f"Ты выбрал:\n\n{selected_post}", reply_markup=MAIN_KEYBOARD)
+                    user_name = context.user_data.get('user_name', 'друг')
+                    await update.message.reply_text(f"Отличный выбор, {user_name}! 🎉 Вот твой пост:\n\n{selected_post}", reply_markup=MAIN_KEYBOARD)
                 else:
-                    await update.message.reply_text("Пожалуйста, выбери 1, 2 или 3.")
+                    await update.message.reply_text("Пожалуйста, выбери 1, 2 или 3! 😊")
                     return  # Не сбрасываем action, чтобы пользователь мог выбрать снова
             except ValueError:
-                await update.message.reply_text("Пожалуйста, выбери 1, 2 или 3.")
+                await update.message.reply_text("Пожалуйста, выбери 1, 2 или 3! 😊")
                 return  # Не сбрасываем action, чтобы пользователь мог выбрать снова
             context.user_data['action'] = None
             context.user_data['post_variants'] = None
@@ -135,13 +152,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif action == 'reels_theme':
             # Сохраняем тему и запрашиваем стиль
             context.user_data['theme'] = message
-            await update.message.reply_text("Выбери стиль для Reels:", reply_markup=STYLE_KEYBOARD)
+            await update.message.reply_text("Классная тема! Теперь выбери стиль для Reels: 😊", reply_markup=STYLE_KEYBOARD)
             context.user_data['action'] = 'reels_style'
         elif action == 'reels_style':
             # Генерируем три варианта идей для Reels в выбранном стиле
             theme = context.user_data.get('theme')
             style = message
-            prompt = f"Сгенерируй три варианта идей для Reels на русском языке на тему '{theme}' в стиле '{style}'. Весь текст должен быть строго на русском языке, без английских слов. Каждый вариант должен быть отделён пустой строкой."
+            prompt = (
+                f"Сгенерируй ровно три уникальных варианта идей для Reels на русском языке на тему '{theme}' в стиле '{style}'. "
+                f"Каждая идея должна быть уникальной, не повторять предыдущие по смыслу и содержанию. "
+                f"Весь текст должен быть строго на русском языке, без английских слов. "
+                f"Каждый вариант должен быть отделён двумя пустыми строками (\n\n). "
+                f"Не добавляй заголовки вроде 'Вариант 1' или 'Вот три варианта', просто текст идей."
+            )
             try:
                 text = generate_with_together(prompt)
                 text = remove_english_text(text)
@@ -149,15 +172,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data['reels_variants'] = variants
                 if len(variants) != 3:
                     logger.warning(f"Сгенерировано {len(variants)} вариантов вместо 3: {text}")
-                    await update.message.reply_text("Произошла ошибка: сгенерировано неправильное количество вариантов. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
+                    await update.message.reply_text("Ой, что-то пошло не так! 😓 Сгенерировано неправильное количество идей. Давай попробуем снова?", reply_markup=MAIN_KEYBOARD)
                     context.user_data['action'] = None
                     context.user_data['theme'] = None
                     return
-                await update.message.reply_text(f"Вот идеи для Reels:\n\n{text}\n\nВыбери вариант: 1, 2 или 3")
+                formatted_text = "\n\n".join([f"**Вариант {i+1}**\n{v}" for i, v in enumerate(variants)])
+                await update.message.reply_text(f"Вот идеи для Reels! 🎥\n\n{formatted_text}\n\nКакую идею выбираешь? Напиши 1, 2 или 3! 😊")
                 context.user_data['action'] = 'reels_select'
             except Exception as e:
                 logger.error(f"Ошибка при генерации Reels: {e}")
-                await update.message.reply_text("Произошла ошибка при генерации Reels. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
+                await update.message.reply_text("Ой, что-то пошло не так при генерации идей для Reels! 😓 Давай попробуем снова?", reply_markup=MAIN_KEYBOARD)
                 context.user_data['action'] = None
                 context.user_data['theme'] = None
         elif action == 'reels_select':
@@ -167,12 +191,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 choice = int(message) - 1
                 if 0 <= choice < len(variants):
                     selected_reel = variants[choice]
-                    await update.message.reply_text(f"Ты выбрал:\n\n{selected_reel}", reply_markup=MAIN_KEYBOARD)
+                    user_name = context.user_data.get('user_name', 'друг')
+                    await update.message.reply_text(f"Супер выбор, {user_name}! 🎉 Вот твоя идея для Reels:\n\n{selected_reel}", reply_markup=MAIN_KEYBOARD)
                 else:
-                    await update.message.reply_text("Пожалуйста, выбери 1, 2 или 3.")
+                    await update.message.reply_text("Пожалуйста, выбери 1, 2 или 3! 😊")
                     return
             except ValueError:
-                await update.message.reply_text("Пожалуйста, выбери 1, 2 или 3.")
+                await update.message.reply_text("Пожалуйста, выбери 1, 2 или 3! 😊")
                 return
             context.user_data['action'] = None
             context.user_data['reels_variants'] = None
@@ -180,12 +205,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif action == 'strategy_goal':
             # Сохраняем цель и запрашиваем ЦА
             context.user_data['goal'] = message
-            await update.message.reply_text("Укажи целевую аудиторию (например, 'молодёжь 18-24'):")
+            await update.message.reply_text("Хорошая цель! 🎯 Теперь укажи целевую аудиторию (например, 'молодёжь 18-24'):")
             context.user_data['action'] = 'strategy_audience'
         elif action == 'strategy_audience':
             # Сохраняем ЦА и запрашиваем период
             context.user_data['audience'] = message
-            await update.message.reply_text("Укажи период стратегии (например, '1 месяц'):")
+            await update.message.reply_text("Отлично! Теперь укажи период стратегии (например, '1 месяц'):")
             context.user_data['action'] = 'strategy_period'
         elif action == 'strategy_period':
             # Генерируем стратегию с контент-планом и отправляем в PDF
@@ -196,21 +221,23 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Создай SMM-стратегию на русском языке для достижения цели '{goal}' для аудитории '{audience}' на период '{period}'. "
                 f"Включи в стратегию: 1) Цели и аудиторию, 2) Типы контента, 3) Календарь контента, 4) Стратегию вовлечения, "
                 f"5) Сотрудничество с инфлюенсерами, 6) Платную рекламу, 7) Метрики и оценку, 8) Контент-план на указанный период с конкретными идеями постов и сторис. "
-                f"Весь текст должен быть строго на русском языке, без английских слов. Каждый раздел должен быть отделён пустой строкой."
+                f"Весь текст должен быть строго на русском языке, без английских слов, кроме названий платформ (например, Instagram, Facebook). "
+                f"Каждый раздел должен быть отделён пустой строкой."
             )
             try:
                 text = generate_with_together(prompt)
                 text = remove_english_text(text)
                 # Генерируем PDF
                 pdf_path = f"strategy_{update.effective_user.id}.pdf"
-                generate_pdf(text, pdf_path)
+                generate_pdf(text, pdf_path)  # Теперь функция принимает два аргумента
                 # Отправляем PDF
                 with open(pdf_path, 'rb') as pdf_file:
-                    await update.message.reply_document(document=pdf_file, caption="Вот твоя стратегия в PDF:", reply_markup=MAIN_KEYBOARD)
+                    user_name = context.user_data.get('user_name', 'друг')
+                    await update.message.reply_document(document=pdf_file, caption=f"Вот твоя стратегия, {user_name}! 📈", reply_markup=MAIN_KEYBOARD)
                 os.remove(pdf_path)
             except Exception as e:
                 logger.error(f"Ошибка при генерации стратегии: {e}")
-                await update.message.reply_text("Произошла ошибка при генерации стратегии. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
+                await update.message.reply_text("Ой, что-то пошло не так при генерации стратегии! 😓 Давай попробуем снова?", reply_markup=MAIN_KEYBOARD)
             context.user_data['action'] = None
             context.user_data['goal'] = None
             context.user_data['audience'] = None
@@ -219,21 +246,23 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 hashtags = generate_hashtags(message)
                 hashtags = remove_english_text(hashtags)
-                await update.message.reply_text(f"Вот хэштеги:\n\n{hashtags}", reply_markup=MAIN_KEYBOARD)
+                user_name = context.user_data.get('user_name', 'друг')
+                await update.message.reply_text(f"Вот твои хэштеги, {user_name}! 🔖\n\n{hashtags}", reply_markup=MAIN_KEYBOARD)
             except Exception as e:
                 logger.error(f"Ошибка при генерации хэштегов: {e}")
-                await update.message.reply_text("Произошла ошибка при генерации хэштегов. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
+                await update.message.reply_text("Ой, что-то пошло не так при генерации хэштегов! 😓 Давай попробуем снова?", reply_markup=MAIN_KEYBOARD)
             context.user_data['action'] = None
         elif action == 'ab_test':
             # Генерируем варианты для А/Б теста
-            prompt = f"Сгенерируй на русском языке два варианта для А/Б теста: {message}. Весь текст должен быть строго на русском языке, без английских слов."
+            prompt = f"Сгенерируй на русском языке два варианта для А/Б теста: {message}. Весь текст должен быть строго на русском языке, без английских слов, кроме названий платформ."
             try:
                 text = generate_with_together(prompt)
                 text = remove_english_text(text)
-                await update.message.reply_text(f"Вот варианты для А/Б теста:\n\n{text}", reply_markup=MAIN_KEYBOARD)
+                user_name = context.user_data.get('user_name', 'друг')
+                await update.message.reply_text(f"Вот варианты для А/Б теста, {user_name}! 🧪\n\n{text}", reply_markup=MAIN_KEYBOARD)
             except Exception as e:
                 logger.error(f"Ошибка при генерации А/Б теста: {e}")
-                await update.message.reply_text("Произошла ошибка при генерации А/Б теста. Попробуй снова!", reply_markup=MAIN_KEYBOARD)
+                await update.message.reply_text("Ой, что-то пошло не так при генерации А/Б теста! 😓 Давай попробуем снова?", reply_markup=MAIN_KEYBOARD)
             context.user_data['action'] = None
     else:
         await handle_message(update, context)
@@ -244,5 +273,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     voice_file = await update.message.voice.get_file()
     file_path = f"voice_{update.message.message_id}.ogg"
     await voice_file.download_to_drive(file_path)
-    await update.message.reply_text("Голосовые сообщения пока не поддерживаются.")
+    user_name = context.user_data.get('user_name', 'друг')
+    await update.message.reply_text(f"Прости, {user_name}, я пока не умею обрабатывать голосовые сообщения! 😅 Напиши текстом, и я помогу! 😊")
     os.remove(file_path)

@@ -1,59 +1,80 @@
 import os
-import requests
 import logging
-from datetime import datetime, timedelta
 from fpdf import FPDF
+from together import Together
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
+# Словарь подписок
 subscriptions = {}
 
-def check_subscription(user_id):
-    if user_id not in subscriptions:
-        subscriptions[user_id] = datetime.now() + timedelta(days=3)  # 3 дня пробного периода
-    return subscriptions[user_id] > datetime.now()
-
-def generate_with_together(prompt):
-    api_key = os.getenv("TOGETHER_API_KEY")
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = {
-        "model": "meta-llama/Llama-3-8b-chat-hf",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 1000,
-        "temperature": 0.5
-    }
-    try:
-        response = requests.post("https://api.together.xyz/v1/chat/completions", headers=headers, json=payload, timeout=30)
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"].strip()
-        else:
-            logger.error(f"Ошибка Together AI: {response.status_code} - {response.text}")
-            return "Ошибка генерации текста."
-    except Exception as e:
-        logger.error(f"Ошибка при генерации текста: {e}")
-        return "Ошибка генерации текста."
-
-def generate_hashtags(topic):
-    # Перенеси логику из старого generate_hashtags
-    return "#хэштег1 #хэштег2 #хэштег3"
-
-def generate_pdf(text):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-    pdf.set_font("DejaVu", size=12)
-    pdf.multi_cell(0, 10, text)
-    pdf_file = f"output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-    pdf.output(pdf_file)
-    return pdf_file
-
+# Промпты для генерации контента
 PROMPTS = {
-    "post": {
-        "дружелюбный": "Создай пост на тему {theme} в формате {template}.",
-        "саркастичный": "Создай пост на тему {theme} в формате {template} с сарказмом.",
-        "формальный": "Создай пост на тему {theme} в формате {template} в формальном стиле."
+    'post': {
+        'дружелюбный': "Напиши короткий пост на тему '{theme}' в дружелюбном стиле: {template}",
+        'профессиональный': "Напиши короткий пост на тему '{theme}' в профессиональном стиле: {template}",
+        'вдохновляющий': "Напиши короткий пост на тему '{theme}' в вдохновляющем стиле: {template}",
     },
-    "strategy": {
-        "engagement": "Составь SMM-стратегию для увеличения вовлечённости. Аудитория: {audience}, период: {period}."
+    'strategy': {
+        'engagement': "Создай SMM-стратегию для увеличения вовлечённости для аудитории '{audience}' на период '{period}'."
     }
 }
+
+def check_subscription(user_id):
+    """Проверяет подписку пользователя и обновляет её статус."""
+    if user_id not in subscriptions:
+        # Даём 3 дня бесплатного доступа
+        subscriptions[user_id] = {
+            'start_date': datetime.now(),
+            'end_date': datetime.now() + timedelta(days=3),
+            'status': 'trial'
+        }
+    logger.info(f"Подписка пользователя {user_id}: {subscriptions[user_id]}")
+    return subscriptions[user_id]
+
+def generate_with_together(prompt):
+    """Генерирует текст с помощью Together API."""
+    client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
+    try:
+        response = client.completions.create(
+            model="meta-llama/Llama-3-8b-chat-hf",
+            prompt=prompt,
+            max_tokens=500,
+            temperature=0.7,
+        )
+        return response.choices[0].text.strip()
+    except Exception as e:
+        logger.error(f"Ошибка при генерации текста с Together: {e}")
+        raise
+
+def generate_hashtags(theme):
+    """Генерирует хэштеги на основе темы."""
+    prompt = f"Сгенерируй 5-7 хэштегов на русском языке для темы '{theme}'."
+    try:
+        hashtags = generate_with_together(prompt)
+        return hashtags
+    except Exception as e:
+        logger.error(f"Ошибка при генерации хэштегов: {e}")
+        raise
+
+def generate_pdf(text, pdf_path):
+    """Генерирует PDF-файл из текста и возвращает путь к файлу."""
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        # Добавляем шрифт с поддержкой русского языка
+        pdf.add_font('DejaVu', '', 'DejaVuSans.ttf', uni=True)
+        pdf.set_font('DejaVu', '', 12)
+        # Разбиваем текст на строки, чтобы избежать проблем с кодировкой
+        lines = text.split('\n')
+        for line in lines:
+            # Обрабатываем кодировку для каждой строки
+            pdf.multi_cell(0, 10, line.encode('latin-1', 'replace').decode('latin-1'))
+        # Сохраняем PDF по указанному пути
+        pdf.output(pdf_path)
+        logger.info(f"PDF успешно создан: {pdf_path}")
+        return pdf_path
+    except Exception as e:
+        logger.error(f"Ошибка при создании PDF: {e}")
+        raise
