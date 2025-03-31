@@ -63,15 +63,21 @@ def generate_pdf(text, pdf_path):
     try:
         pdf = FPDF()
         pdf.add_page()
-        # Добавляем шрифт с поддержкой русского языка
-        pdf.add_font('DejaVu', '', 'DejaVuSans.ttf', uni=True)
+        font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
+        if not os.path.exists(font_path):
+            logger.error(f"Шрифт не найден по пути: {font_path}")
+            raise FileNotFoundError(f"Шрифт не найден: {font_path}")
+        
+        pdf.add_font('DejaVu', '', font_path, uni=True)
         pdf.set_font('DejaVu', '', 12)
-        # Разбиваем текст на строки, чтобы избежать проблем с кодировкой
+        
+        if isinstance(text, str):
+            text = text.encode('utf-8').decode('utf-8')
+        
         lines = text.split('\n')
         for line in lines:
-            # Обрабатываем кодировку для каждой строки
-            pdf.multi_cell(0, 10, line.encode('latin-1', 'replace').decode('latin-1'))
-        # Сохраняем PDF по указанному пути
+            pdf.multi_cell(0, 10, line)
+        
         pdf.output(pdf_path)
         logger.info(f"PDF успешно создан: {pdf_path}")
         return pdf_path
