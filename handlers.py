@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 from fpdf import FPDF
 import re
+import json
 
 # Настройка логирования
 logging.basicConfig(
@@ -14,7 +15,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Инициализация Together API
 together_client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
+
+# Загрузка промптов из JSON
+with open("prompts.json", "r", encoding="utf-8") as f:
+    PROMPTS = json.load(f)
+
+# Хранилище подписок пользователей
 subscriptions = {}
 
 def check_subscription(user_id: int) -> dict:
@@ -33,107 +41,74 @@ def check_subscription(user_id: int) -> dict:
 async def generate_post(theme: str, style: str) -> list[str]:
     max_attempts = 3
     for attempt in range(max_attempts):
-        prompt = (
-            f"Сгенерируй ровно 3 варианта текста для поста в соцсетях на тему '{theme}' в {style} стиле. "
-            f"Каждый вариант должен быть на русском языке, не длиннее 3 предложений. "
-            f"Разделяй варианты двумя переносами строки (\n\n)."
+        # Используем соответствующий промпт из JSON
+        prompt_template = PROMPTS["post"].get(style, PROMPTS["post"]["friendly"])
+        prompt = prompt_template.format(
+            theme=theme,
+            idea="",
+            goal="вовлечение аудитории",
+            main_idea="",
+            facts="",
+            pains="",
+            template="стандарт"
         )
+        
         try:
             response = together_client.completions.create(
                 model="meta-llama/Llama-3-8b-chat-hf",
                 prompt=prompt,
-                max_tokens=150,
+                max_tokens=200,
                 temperature=0.7,
                 top_p=0.9,
             )
             variants = response.choices[0].text.strip().split("\n\n")
             variants = [v.strip() for v in variants if v.strip()]
+            
             if len(variants) >= 3:
                 return variants[:3]
             else:
                 logger.warning(f"Попытка {attempt + 1}: Сгенерировано {len(variants)} вариантов вместо 3")
                 if attempt == max_attempts - 1:
-                    variants += ["Вариант не сгенерирован. Попробуйте снова! 😊"] * (3 - len(variants))
+                    while len(variants) < 3:
+                        variants.append("Вариант не сгенерирован. Попробуйте снова!")
                     return variants
         except Exception as e:
             logger.error(f"Ошибка при генерации поста: {e}")
             if attempt == max_attempts - 1:
-                return ["Ошибка генерации"] * 3
-    return ["Ошибка генерации"] * 3
+                return ["Ошибка генерации."] * 3
+    return ["Ошибка генерации."] * 3
 
 # Генерация стратегии
 async def generate_strategy(goal: str, audience: str, period: str) -> str:
-    prompt = (
-        f"Составь SMM-стратегию для достижения цели '{goal}' для аудитории '{audience}' на период '{period}'. "
-        f"Требования: 7-10 пунктов с маркером '* ', только русский язык, "
-        f"используй российские платформы (ВК, Ютуб, ТикТок, Инстаграм). "
-        f"Не используй английские слова (Instagram → Инстаграм, Live → прямые эфиры)."
+    # Выбор типа стратегии (например, engagement)
+    strategy_type = "engagement"
+    prompt_template = PROMPTS["strategy"].get(strategy_type, PROMPTS["strategy"]["engagement"])
+    
+    # Формирование промпта
+    prompt = prompt_template.format(
+        audience=audience,
+        channels="Instagram, ВКонтакте, Telegram",
+        result=f"увеличение {goal} за {period}"
     )
+    
     try:
         response = together_client.completions.create(
             model="meta-llama/Llama-3-8b-chat-hf",
             prompt=prompt,
-            max_tokens=400,
-            temperature=0.6,
+            max_tokens=600,
+            temperature=0.7,
+            top_p=0.9,
         )
         strategy = response.choices[0].text.strip()
         lines = strategy.split("\n")
-        filtered = []
+        filtered_lines = []
         for line in lines:
             if not any(word in line.lower() for word in ["live", "instagram", "facebook"]):
-                filtered.append(line)
-        return "\n".join(filtered)
+                filtered_lines.append(line)
+        return "\n".join(filtered_lines)
     except Exception as e:
-        logger.error(f"Ошибка стратегии: {e}")
-        return "Не получилось сгенерировать стратегию"
-
-# Генерация хештегов
-async def generate_hashtags(theme: str) -> str:
-    prompt = f"Сгенерируй 5-7 хэштегов на русском языке для темы '{theme}'."
-    try:
-        response = together_client.completions.create(
-            model="meta-llama/Llama-3-8b-chat-hf",
-            prompt=prompt,
-            max_tokens=50,
-            temperature=0.6,
-        )
-        hashtags = response.choices[0].text.strip()
-        return hashtags
-    except Exception as e:
-        logger.error(f"Ошибка при генерации хештегов: {e}")
-        return "Не удалось сгенерировать хештеги. Попробуйте снова!"
-
-# Генерация идей для Рилсов
-async def generate_reels_idea(theme: str) -> str:
-    prompt = f"Сгенерируй идею для Рилса на тему '{theme}' в формате короткого текста и списка необходимых элементов."
-    try:
-        response = together_client.completions.create(
-            model="meta-llama/Llama-3-8b-chat-hf",
-            prompt=prompt,
-            max_tokens=100,
-            temperature=0.7,
-        )
-        idea = response.choices[0].text.strip()
-        return idea
-    except Exception as e:
-        logger.error(f"Ошибка при генерации идеи для Рилса: {e}")
-        return "Не удалось сгенерировать идею для Рилса. Попробуйте снова!"
-
-# Генерация А/Б теста
-async def generate_ab_test(goal: str) -> str:
-    prompt = f"Составь два варианта контента для А/Б теста с целью '{goal}'. Каждый вариант должен быть уникальным и содержать описание и хэштеги."
-    try:
-        response = together_client.completions.create(
-            model="meta-llama/Llama-3-8b-chat-hf",
-            prompt=prompt,
-            max_tokens=200,
-            temperature=0.7,
-        )
-        ab_test = response.choices[0].text.strip()
-        return ab_test
-    except Exception as e:
-        logger.error(f"Ошибка при генерации А/Б теста: {e}")
-        return "Не удалось сгенерировать А/Б тест. Попробуйте снова!"
+        logger.error(f"Ошибка при генерации стратегии: {e}")
+        return "Не удалось сгенерировать стратегию. Попробуйте снова!"
 
 # Создание PDF
 def create_pdf(content: str, filename: str):
@@ -143,51 +118,42 @@ def create_pdf(content: str, filename: str):
     pdf.set_font("DejaVu", "", 12)
     pdf.multi_cell(0, 10, content)
     pdf.output(filename)
-    logger.info(f"PDF создан: {filename}")
+    logger.info(f"PDF успешно создан: {filename}")
 
 # Обработчик команды /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     check_subscription(user_id)
-    await update.message.reply_text("Привет! Как тебя зовут?")
+    await update.message.reply_text("Привет! Я твой SMM-помощник! 😊 Как тебя зовут?")
 
 # Обработчик текстовых сообщений
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    text = update.message.text.strip().lower()
-    logger.info(f"Сообщение от {user_id}: {text}")
-
+    text = update.message.text.lower().strip()
     subscription = check_subscription(user_id)
-    if subscription["end_date"] < datetime.now() and subscription["status"] == "trial":
-        await update.message.reply_text("Пробный период закончился. Подпишитесь!")
-        return
-
+    
     if "user_name" not in context.user_data:
         context.user_data["user_name"] = update.message.text
         await update.message.reply_text(
-            f"Приятно познакомиться, {context.user_data['user_name']}! 🎉 Выберите: пост, стратегия, хештеги, рилс или А/Б тест"
+            f"Приятно познакомиться, {context.user_data['user_name']}! 🎉 У тебя 3 дня бесплатного доступа! Что выберешь: пост или стратегию?"
         )
         return
-
+    
     if "пост" in text:
         context.user_data["state"] = "post_theme"
-        await update.message.reply_text("Укажите тему поста:")
+        await update.message.reply_text("Давай создадим пост! 🌟 Укажи тему:")
     elif "стратегия" in text:
         context.user_data["state"] = "strategy_goal"
-        await update.message.reply_text("Укажите цель стратегии:")
-    elif "хештеги" in text:
-        context.user_data["state"] = "hashtags_theme"
-        await update.message.reply_text("Укажите тему для генерации хештегов:")
-    elif "рيلс" in text:
-        context.user_data["state"] = "reels_theme"
-        await update.message.reply_text("Укажите тему для идеи Рилса:")
-    elif "а/б тест" in text or "аб тест" in text:
-        context.user_data["state"] = "ab_test_goal"
-        await update.message.reply_text("Укажите цель для А/Б теста:")
+        await update.message.reply_text("Давай составим стратегию! 📈 Укажи цель:")
     elif context.user_data.get("state") == "post_theme":
         context.user_data["post_theme"] = text
         context.user_data["state"] = "post_style"
-        await update.message.reply_text("Выберите стиль поста:")
+        await update.message.reply_text(
+            "Выбери стиль:",
+            reply_markup=ReplyKeyboardMarkup([
+                ["Формальный", "Дружелюбный", "Саркастичный"]
+            ], one_time_keyboard=True)
+        )
     elif context.user_data.get("state") == "post_style":
         style = text
         theme = context.user_data["post_theme"]
@@ -200,14 +166,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Что-то пошло не так 😅")
         finally:
             context.user_data.pop("state", None)
+            context.user_data.pop("post_theme", None)
     elif context.user_data.get("state") == "strategy_goal":
         context.user_data["strategy_goal"] = text
         context.user_data["state"] = "strategy_audience"
-        await update.message.reply_text("Укажите целевую аудиторию:")
+        await update.message.reply_text("Укажи целевую аудиторию:")
     elif context.user_data.get("state") == "strategy_audience":
         context.user_data["strategy_audience"] = text
         context.user_data["state"] = "strategy_period"
-        await update.message.reply_text("Укажите период (например, '1 месяц'):")
+        await update.message.reply_text("Укажи период (например, '1 месяц'):")
     elif context.user_data.get("state") == "strategy_period":
         period = text
         try:
@@ -226,45 +193,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Ошибка. Попробуйте позже")
         finally:
             context.user_data.pop("state", None)
-    elif context.user_data.get("state") == "hashtags_theme":
-        theme = text
-        try:
-            hashtags = await generate_hashtags(theme)
-            await update.message.reply_text(f"Ваши хештеги:\n{hashtags}")
-        except Exception as e:
-            logger.error(f"Ошибка хештегов: {e}")
-            await update.message.reply_text("Что-то пошло не так 😅")
-        finally:
-            context.user_data.pop("state", None)
-    elif context.user_data.get("state") == "reels_theme":
-        theme = text
-        try:
-            idea = await generate_reels_idea(theme)
-            await update.message.reply_text(f"Ваша идея для Рилса:\n{idea}")
-        except Exception as e:
-            logger.error(f"Ошибка Рилса: {e}")
-            await update.message.reply_text("Что-то пошло не так 😅")
-        finally:
-            context.user_data.pop("state", None)
-    elif context.user_data.get("state") == "ab_test_goal":
-        goal = text
-        try:
-            ab_test = await generate_ab_test(goal)
-            await update.message.reply_text(f"Ваши варианты для А/Б теста:\n{ab_test}")
-        except Exception as e:
-            logger.error(f"Ошибка А/Б теста: {e}")
-            await update.message.reply_text("Что-то пошло не так 😅")
-        finally:
-            context.user_data.pop("state", None)
+            context.user_data.pop("strategy_goal", None)
+            context.user_data.pop("strategy_audience", None)
     else:
-        await update.message.reply_text("Неизвестная команда. Пожалуйста, выберите из предложенных опций.")
+        await update.message.reply_text("Не понял. Выбери из предложенных опций.")
 
 # Обработчик ошибок
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Ошибка: {context.error}")
     await update.message.reply_text("Произошла ошибка. Попробуйте позже")
 
-# Запуск бота
+# Основная функция запуска
 def main():
     app = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
     app.add_handler(CommandHandler("start", start))
